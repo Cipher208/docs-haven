@@ -1,0 +1,25 @@
+labels:
+  - label: "bug"
+    paths:
+      - "**/*.py"
+    title:
+      - regex: "\\bfix(es|ed)?\\b"
+      - regex: "\\bbug\\b"
+
+  - label: "dependencies"
+    paths:
+      - "pyproject.toml"
+      - "requirements*.txt"
+
+  - label: "ci"
+    paths:
+      - ".github/**"
+
+  - label: "documentation"
+    paths:
+      - "**/*.md"
+      - "docs/**"
+
+  - label: "tests"
+    paths:
+      - "tests/**"
