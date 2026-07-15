@@ -35,8 +35,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-      - run: pip install -e ".[test]"
-      - run: mypy uri.py storage.py sync.py conflicts.py server.py --ignore-missing-imports
+      - run: pip install -e ".[test]" mypy
+      - run: python -m mypy uri.py storage.py sync.py conflicts.py server.py --ignore-missing-imports
 
   test:
     runs-on: ubuntu-latest
