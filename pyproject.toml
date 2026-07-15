@@ -28,6 +28,13 @@ dependencies = [
     "mcp[cli]>=1.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Cipher208/docs-haven"
+Documentation = "https://github.com/Cipher208/docs-haven/tree/main/docs"
+Repository = "https://github.com/Cipher208/docs-haven"
+Issues = "https://github.com/Cipher208/docs-haven/issues"
+Changelog = "https://github.com/Cipher208/docs-haven/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 test = [
     "pytest>=7.0",
