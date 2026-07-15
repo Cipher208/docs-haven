@@ -1,0 +1,8 @@
+# Default owner for everything in the repo
+* @Cipher208
+
+# Python source
+*.py @Cipher208
+
+# CI/CD
+.github/ @Cipher208
