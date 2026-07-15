@@ -230,6 +230,44 @@ mypy . --ignore-missing-imports
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
+## Comparison
+
+| Feature | DocsHaven | QMD | Elasticsearch | Context7 |
+|---------|-----------|-----|---------------|----------|
+| Dependencies | 0 (stdlib) | 1 (npm) | JVM + plugins | External service |
+| Setup time | 10 seconds | 5 minutes | 30+ minutes | API key needed |
+| MCP server | Built-in | No | No | Yes |
+| URI routing | Yes | No | No | No |
+| Conflict detection | Yes | No | No | No |
+| Git sync | Compressed chunks | No | No | No |
+| Cost | Free | Free | Free (self-hosted) | Paid tiers |
+
+## FAQ
+
+### What is DocsHaven?
+
+DocsHaven is a local knowledge base designed for AI agents. It provides full-text search via SQLite FTS5, organizes knowledge by URI domains (core://, ref://, guide://), and detects contradictions when adding new documents. It runs as an MCP server with 14 tools.
+
+### How is this different from just using SQLite?
+
+DocsHaven adds a complete knowledge management layer on top of SQLite: automatic document chunking, BM25 ranking with LIKE fallback, URI-based organization, conflict detection, and compressed multi-machine sync — all exposed via MCP tools.
+
+### Can I use this with Claude Desktop / Cursor / other AI agents?
+
+Yes. DocsHaven runs as an MCP server. Add it to your MCP client config and all 14 tools become available to your agent.
+
+### How fast is search?
+
+SQLite FTS5 with BM25 ranking handles 1,000+ documents in under 100ms on modern hardware. No network latency since everything is local.
+
+### Is my data sent anywhere?
+
+No. DocsHaven is fully local. The only network operation is cloning GitHub repositories (which you initiate). All search and storage happens on your machine.
+
+## Author
+
+Built with ❤️ by [Cipher208](https://github.com/Cipher208)
+
 ## License
 
 MIT
