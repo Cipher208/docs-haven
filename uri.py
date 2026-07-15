@@ -10,6 +10,7 @@ VALID_DOMAINS = {"core", "ref", "guide", "lib", "src", "test", "note"}
 @dataclass
 class URI:
     """Parsed knowledge URI: domain://path/to/doc"""
+
     domain: str
     path: str
     raw: str
@@ -120,7 +121,4 @@ class URIRouter:
                 domain = name.split("__")[0]
                 if domain in VALID_DOMAINS:
                     domains[domain] = domains.get(domain, 0) + 1
-        return {
-            d: {"count": domains.get(d, 0), "doc": self.DOMAIN_DOCS.get(d, "")}
-            for d in VALID_DOMAINS
-        }
+        return {d: {"count": domains.get(d, 0), "doc": self.DOMAIN_DOCS.get(d, "")} for d in VALID_DOMAINS}

@@ -55,13 +55,15 @@ class TestManifest:
 
     def test_roundtrip(self):
         m = Manifest()
-        m.chunks.append(ChunkEntry(
-            id="abc12345",
-            created_by="test",
-            created_at="2026-01-01T00:00:00Z",
-            collections=1,
-            documents=5,
-        ))
+        m.chunks.append(
+            ChunkEntry(
+                id="abc12345",
+                created_by="test",
+                created_at="2026-01-01T00:00:00Z",
+                collections=1,
+                documents=5,
+            )
+        )
         d = m.to_dict()
         m2 = Manifest.from_dict(d)
         assert len(m2.chunks) == 1

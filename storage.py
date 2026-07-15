@@ -38,7 +38,7 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
             last_newline = chunk.rfind("\n\n")
             break_at = max(last_period, last_newline)
             if break_at > chunk_size // 2:
-                chunk = text[start:start + break_at + 1]
+                chunk = text[start : start + break_at + 1]
                 end = start + break_at + 1
 
         chunks.append(chunk.strip())
@@ -48,6 +48,7 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 
 
 # ── Auto Strategy ───────────────────────────────────────────────────────────
+
 
 def auto_strategy(query: str) -> str:
     """Pick search strategy based on query complexity.
@@ -94,6 +95,7 @@ def type_boost(query: str, result: dict) -> float:
 
 
 # ── Storage ─────────────────────────────────────────────────────────────────
+
 
 class Storage:
     """SQLite FTS5-backed document storage with smart search strategies."""
@@ -186,9 +188,12 @@ class Storage:
         # Clone if not exists
         if not repo_dir.exists():
             import subprocess
+
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", url, str(repo_dir)],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
             if result.returncode != 0:
                 return {"error": f"Clone failed: {result.stderr}"}
@@ -281,9 +286,7 @@ class Storage:
         results.sort(key=lambda x: -x.get("score", 0))
         return results[:limit]
 
-    def _search_fts5(
-        self, query: str, collections: list[str] | None, limit: int
-    ) -> list[dict]:
+    def _search_fts5(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
         """FTS5 search with BM25 ranking."""
         conn = self._get_conn()
         try:
@@ -333,9 +336,7 @@ class Storage:
         finally:
             conn.close()
 
-    def _search_like(
-        self, query: str, collections: list[str] | None, limit: int
-    ) -> list[dict]:
+    def _search_like(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
         """LIKE fallback for when FTS5 fails or for hybrid search."""
         conn = self._get_conn()
         try:
@@ -439,9 +440,7 @@ class Storage:
         try:
             total = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
             docs = conn.execute("SELECT COUNT(DISTINCT file_path) FROM documents").fetchone()[0]
-            collections = conn.execute(
-                "SELECT COUNT(DISTINCT collection) FROM documents"
-            ).fetchone()[0]
+            collections = conn.execute("SELECT COUNT(DISTINCT collection) FROM documents").fetchone()[0]
             config = self._load_config()
             return {
                 "total_chunks": total,

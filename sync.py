@@ -20,6 +20,7 @@ WORK_DB = "docshaven.db"  # gitignored
 @dataclass
 class ChunkEntry:
     """Single chunk entry in manifest."""
+
     id: str  # SHA-256 prefix (8 chars)
     created_by: str
     created_at: str
@@ -30,6 +31,7 @@ class ChunkEntry:
 @dataclass
 class Manifest:
     """Index of all synced chunks."""
+
     version: int = 1
     chunks: list = field(default_factory=list)
 
@@ -143,9 +145,7 @@ class Syncer:
             # Apply chunk data (caller handles actual import)
             result["chunks_imported"] += 1
             result["collections_imported"] += len(chunk_data.get("collections", {}))
-            result["documents_imported"] += sum(
-                len(docs) for docs in chunk_data.get("collections", {}).values()
-            )
+            result["documents_imported"] += sum(len(docs) for docs in chunk_data.get("collections", {}).values())
 
         return result
 

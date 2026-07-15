@@ -12,6 +12,7 @@ from dataclasses import dataclass
 @dataclass
 class ConflictCandidate:
     """A potential conflict with an existing document."""
+
     title: str
     collection: str
     score: float
@@ -23,6 +24,7 @@ class ConflictCandidate:
 @dataclass
 class ConflictResult:
     """Result of conflict detection for a new document."""
+
     new_title: str
     candidates: list
     has_conflicts: bool
@@ -51,6 +53,7 @@ class ConflictDetector:
             from pathlib import Path
 
             from storage import Storage
+
             self._storage = Storage(Path.home() / ".docshaven")
         return self._storage
 
@@ -93,15 +96,17 @@ class ConflictDetector:
         for r in results:
             score = r.get("score", 0)
             if score >= self.SCORE_THRESHOLD:
-                candidates.append({
-                    "title": r.get("title", ""),
-                    "collection": r.get("collection", "unknown"),
-                    "score": round(score, 3),
-                    "path": r.get("path", ""),
-                    "snippet": r.get("content", "")[:200],
-                })
+                candidates.append(
+                    {
+                        "title": r.get("title", ""),
+                        "collection": r.get("collection", "unknown"),
+                        "score": round(score, 3),
+                        "path": r.get("path", ""),
+                        "snippet": r.get("content", "")[:200],
+                    }
+                )
 
-        return candidates[:self.MAX_CANDIDATES]
+        return candidates[: self.MAX_CANDIDATES]
 
     def judge(self, new_id: str, candidate_id: str, judgment: str) -> dict:
         """Record a human judgment on a conflict.
