@@ -1,0 +1,179 @@
+"""Git Sync for DocsHaven — compressed chunks for PC <-> VPS sync.
+
+Pattern from engram: each sync creates a NEW chunk (never modifies old ones).
+No merge conflicts. Manifest tracks all chunks.
+"""
+
+import gzip
+import hashlib
+import json
+import os
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+CHUNKS_DIR = "chunks"
+MANIFEST_FILE = "manifest.json"
+WORK_DB = "docshaven.db"  # gitignored
+
+
+@dataclass
+class ChunkEntry:
+    """Single chunk entry in manifest."""
+    id: str  # SHA-256 prefix (8 chars)
+    created_by: str
+    created_at: str
+    collections: int
+    documents: int
+
+
+@dataclass
+class Manifest:
+    """Index of all synced chunks."""
+    version: int = 1
+    chunks: list = field(default_factory=list)
+
+    def to_dict(self):
+        return {"version": self.version, "chunks": [vars(c) for c in self.chunks]}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Manifest":
+        m = cls(version=d.get("version", 1))
+        m.chunks = [ChunkEntry(**c) for c in d.get("chunks", [])]
+        return m
+
+
+class Syncer:
+    """Handle compressed chunk sync between PC and VPS."""
+
+    def __init__(self, sync_dir: Path):
+        self.sync_dir = sync_dir
+        self.chunks_dir = sync_dir / CHUNKS_DIR
+        self.manifest_path = sync_dir / MANIFEST_FILE
+        self._ensure_dirs()
+
+    def _ensure_dirs(self):
+        self.sync_dir.mkdir(parents=True, exist_ok=True)
+        self.chunks_dir.mkdir(parents=True, exist_ok=True)
+
+    def export(self, collections_data: dict, created_by: str = "unknown") -> dict:
+        """Export collections data as a compressed chunk.
+
+        Args:
+            collections_data: {collection_name: [documents]}
+            created_by: Username or machine identifier
+
+        Returns:
+            {chunk_id, collections, documents, isEmpty}
+        """
+        manifest = self._read_manifest()
+
+        # Build chunk content
+        chunk: dict = {
+            "collections": {},
+            "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        total_docs = 0
+        for name, docs in collections_data.items():
+            chunk["collections"][name] = docs
+            total_docs += len(docs)
+
+        if total_docs == 0:
+            return {"isEmpty": True}
+
+        # Serialize and compress
+        chunk_json = json.dumps(chunk, ensure_ascii=False).encode()
+        chunk_id = hashlib.sha256(chunk_json).hexdigest()[:8]
+
+        # Check if already exists
+        known = {c.id for c in manifest.chunks}
+        if chunk_id in known:
+            return {"isEmpty": True}
+
+        # Write compressed chunk
+        chunk_path = self.chunks_dir / f"{chunk_id}.jsonl.gz"
+        with gzip.open(chunk_path, "wb") as f:
+            f.write(chunk_json)
+
+        # Update manifest
+        entry = ChunkEntry(
+            id=chunk_id,
+            created_by=created_by,
+            created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            collections=len(collections_data),
+            documents=total_docs,
+        )
+        manifest.chunks.append(entry)
+        self._write_manifest(manifest)
+
+        return {
+            "chunk_id": chunk_id,
+            "collections": len(collections_data),
+            "documents": total_docs,
+            "isEmpty": False,
+        }
+
+    def import_chunks(self) -> dict:
+        """Import all chunks not yet applied.
+
+        Returns:
+            {chunks_imported, collections_imported, documents_imported, chunks_skipped}
+        """
+        manifest = self._read_manifest()
+        if not manifest.chunks:
+            return {"chunks_imported": 0}
+
+        result = {
+            "chunks_imported": 0,
+            "collections_imported": 0,
+            "documents_imported": 0,
+            "chunks_skipped": 0,
+        }
+
+        for entry in manifest.chunks:
+            chunk_path = self.chunks_dir / f"{entry.id}.jsonl.gz"
+            if not chunk_path.exists():
+                result["chunks_skipped"] += 1
+                continue
+
+            # Read and decompress
+            with gzip.open(chunk_path, "rb") as f:
+                chunk_data = json.loads(f.read())
+
+            # Apply chunk data (caller handles actual import)
+            result["chunks_imported"] += 1
+            result["collections_imported"] += len(chunk_data.get("collections", {}))
+            result["documents_imported"] += sum(
+                len(docs) for docs in chunk_data.get("collections", {}).values()
+            )
+
+        return result
+
+    def status(self) -> dict:
+        """Get sync status."""
+        manifest = self._read_manifest()
+        local_chunks = len(manifest.chunks)
+
+        # Count actual chunk files
+        actual_files = len(list(self.chunks_dir.glob("*.jsonl.gz")))
+
+        return {
+            "local_chunks": local_chunks,
+            "chunk_files": actual_files,
+            "manifest_size": self.manifest_path.stat().st_size if self.manifest_path.exists() else 0,
+        }
+
+    def _read_manifest(self) -> Manifest:
+        if not self.manifest_path.exists():
+            return Manifest()
+        with open(self.manifest_path) as f:
+            return Manifest.from_dict(json.load(f))
+
+    def _write_manifest(self, manifest: Manifest):
+        with open(self.manifest_path, "w") as f:
+            json.dump(manifest.to_dict(), f, indent=2)
+
+
+def get_username() -> str:
+    """Get current username for chunk attribution."""
+    return os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"

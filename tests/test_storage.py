@@ -1,0 +1,163 @@
+"""Tests for Storage — SQLite FTS5 backend."""
+
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from storage import Storage, auto_strategy, chunk_text, type_boost
+
+
+@pytest.fixture
+def tmp_storage():
+    """Provide a clean temporary storage."""
+    with tempfile.TemporaryDirectory() as d:
+        yield Storage(Path(d))
+
+
+@pytest.fixture
+def sample_repo(tmp_storage):
+    """Create a sample repo with test documents."""
+    repo_dir = tmp_storage.repos_dir / "test-repo"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# Test Repo\n\nThis is a test repository.")
+    (repo_dir / "guide.md").write_text("# Guide\n\nStep by step tutorial.")
+    (repo_dir / "api.md").write_text("# API Reference\n\nEndpoint: GET /users")
+    return repo_dir
+
+
+# ── Chunking ────────────────────────────────────────────────────────────────
+
+
+class TestChunking:
+    def test_short_text_no_chunks(self):
+        text = "Short text"
+        chunks = chunk_text(text)
+        assert len(chunks) == 1
+        assert chunks[0] == text
+
+    def test_long_text_chunked(self):
+        text = "word " * 500  # ~2500 chars
+        chunks = chunk_text(text, chunk_size=500, overlap=100)
+        assert len(chunks) > 1
+        # All content should be covered
+        combined = " ".join(chunks)
+        assert "word" in combined
+
+    def test_empty_text(self):
+        chunks = chunk_text("")
+        assert chunks == [""]
+
+
+# ── Auto Strategy ───────────────────────────────────────────────────────────
+
+
+class TestAutoStrategy:
+    def test_short_query(self):
+        assert auto_strategy("fastapi") == "fts"
+        assert auto_strategy("python async") == "fts"
+
+    def test_long_query(self):
+        assert auto_strategy("how to use dependency injection") == "hybrid"
+        assert auto_strategy("fastapi middleware authentication") == "hybrid"
+
+
+# ── Type Boost ──────────────────────────────────────────────────────────────
+
+
+class TestTypeBoost:
+    def test_api_query_boosts_api_doc(self):
+        result = {"title": "API endpoints", "content": "GET /users"}
+        boost = type_boost("api endpoint", result)
+        assert boost > 0
+
+    def test_unrelated_query_no_boost(self):
+        result = {"title": "Random doc", "content": "Some content"}
+        boost = type_boost("random query", result)
+        assert boost == 0
+
+
+# ── Storage ─────────────────────────────────────────────────────────────────
+
+
+class TestStorage:
+    def test_init_creates_db(self, tmp_storage):
+        assert tmp_storage.db_path.exists()
+
+    def test_stats_empty(self, tmp_storage):
+        stats = tmp_storage.stats()
+        assert stats["total_documents"] == 0
+        assert stats["collections"] == 0
+
+    def test_list_collections_empty(self, tmp_storage):
+        collections = tmp_storage.list_collections()
+        assert collections == []
+
+    def test_get_nonexistent(self, tmp_storage):
+        result = tmp_storage.get("nonexistent.md")
+        assert result is None
+
+    def test_search_empty(self, tmp_storage):
+        results = tmp_storage.search("test query")
+        assert results == []
+
+
+class TestStorageSearch:
+    def test_add_documents_and_search(self, tmp_storage):
+        # Add documents directly to DB
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("fastapi", "guide.md", "FastAPI dependency injection tutorial", "FastAPI Guide"),
+        )
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("fastapi", "api.md", "FastAPI REST API endpoints", "FastAPI API"),
+        )
+        conn.commit()
+        conn.close()
+
+        results = tmp_storage.search("FastAPI")
+        assert len(results) > 0
+        assert any("fastapi" in r["title"].lower() for r in results)
+
+    def test_search_by_collection(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("fastapi", "guide.md", "FastAPI tutorial", "Guide"),
+        )
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("sqlalchemy", "orm.md", "SQLAlchemy ORM guide", "ORM Guide"),
+        )
+        conn.commit()
+        conn.close()
+
+        results = tmp_storage.search("tutorial", collections=["fastapi"])
+        assert all(r["collection"] == "fastapi" for r in results)
+
+    def test_get_document(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "README.md", "# Test Repo\nContent here", "Test Repo"),
+        )
+        conn.commit()
+        conn.close()
+
+        doc = tmp_storage.get("README.md")
+        assert doc is not None
+        assert "Test Repo" in doc["content"]
+
+    def test_search_hybrid_strategy(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "How to use FastAPI dependency injection", "FastAPI DI Guide"),
+        )
+        conn.commit()
+        conn.close()
+
+        results = tmp_storage.search("FastAPI dependency injection", strategy="hybrid")
+        assert len(results) > 0
