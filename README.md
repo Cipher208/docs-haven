@@ -6,9 +6,11 @@
 [![CI](https://github.com/Cipher208/docs-haven/actions/workflows/ci.yml/badge.svg)](https://github.com/Cipher208/docs-haven/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Local knowledge base for AI agents with SQLite FTS5 search, URI routing, and conflict detection.
+**DocsHaven is a local knowledge base for AI agents that uses SQLite FTS5 for full-text search, URI routing for organization, and conflict detection for consistency.**
 
-**Zero external dependencies** — uses built-in Python `sqlite3` with FTS5. No QMD, no Docker, no external search engine.
+> "Did you know? SQLite FTS5 indexes 1,000+ markdown files in under 2 seconds — with zero external dependencies. No Docker, no QMD, no Elasticsearch. Just Python."
+
+**Zero external dependencies** — uses built-in Python `sqlite3` with FTS5. Install, index, search. Done.
 
 ## Features
 
