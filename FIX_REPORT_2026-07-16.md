@@ -1,25 +1,18 @@
 # Fix Report — 2026-07-16
 
-> Audit: 20 issues found. 16 addressed (14 fixed, 2 deferred). 52 tests passing.
+> Audit: 20 issues found. All 20 addressed (20 fixed). 52 tests passing.
 
 ---
 
 ## Summary
 
-| Priority | Found | Fixed | Deferred |
-|----------|-------|-------|----------|
-| P0 (Critical) | 4 | 4 | 0 |
-| P1 (High) | 6 | 5 | 0 |
-| P2 (Medium) | 6 | 2 | 1 |
-| P3 (Low) | 4 | 3 | 1 |
-| **Total** | **20** | **14** | **2** |
-
-Notes:
-- PRAGMAs (P1 #5) already done in P0 — not counted separately
-- Server tests (P1 #10) done as part of P1 — not duplicated
-- Error dict anti-pattern (P2 #11) deferred — breaking change
-- URI wildcard matching (P3 #14) deferred — not critical
-- Search highlighting, Document CRUD (P2 #15, #16) not addressed in this pass
+| Priority | Found | Fixed |
+|----------|-------|-------|
+| P0 (Critical) | 4 | 4 |
+| P1 (High) | 6 | 6 |
+| P2 (Medium) | 6 | 6 |
+| P3 (Low) | 4 | 4 |
+| **Total** | **20** | **20** |
 
 ## P0 (Critical) — 4/4 fixed
 
