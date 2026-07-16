@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-from typing import Optional
 
 
 DEFAULT_CONFIG_DIR = Path.home() / ".docshaven"
@@ -12,7 +11,7 @@ CONFIG_FILE = "config.json"
 class Config:
     """DocsHaven configuration."""
 
-    def __init__(self, config_dir: Optional[Path] = None):
+    def __init__(self, config_dir: Path | None = None):
         self.config_dir = config_dir or DEFAULT_CONFIG_DIR
         self.config_path = self.config_dir / CONFIG_FILE
         self._data = self._load()
