@@ -159,3 +159,32 @@ class TestStorageSearch:
 
         results = tmp_storage.search("FastAPI dependency injection", strategy="hybrid")
         assert len(results) > 0
+
+    def test_search_explain(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("fastapi", "guide.md", "FastAPI dependency injection tutorial", "FastAPI Guide"),
+        )
+        conn.commit()
+
+        results = tmp_storage.search("FastAPI", explain=True)
+        assert len(results) > 0
+        r = results[0]
+        assert "explain" in r
+        assert "base_score" in r["explain"]
+        assert "type_boost" in r["explain"]
+        assert "final_score" in r["explain"]
+        assert "source" in r["explain"]
+
+    def test_search_no_explain_by_default(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "Test content", "Test"),
+        )
+        conn.commit()
+
+        results = tmp_storage.search("Test")
+        assert len(results) > 0
+        assert "explain" not in results[0]

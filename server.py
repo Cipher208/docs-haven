@@ -52,6 +52,7 @@ async def kb_search(
     collections: list[str] | None = None,
     limit: int = 10,
     min_score: float = 0.0,
+    explain: bool = False,
 ) -> list[dict]:
     """Search knowledge base using BM25 full-text search.
 
@@ -60,9 +61,10 @@ async def kb_search(
         collections: Filter to specific collections (optional)
         limit: Max results (default: 10)
         min_score: Minimum relevance score (default: 0)
+        explain: Include scoring breakdown in results (default: false)
     """
     storage = _get_storage()
-    results = storage.search(query, collections, limit)
+    results = storage.search(query, collections, limit, explain=explain)
     if min_score > 0:
         results = [r for r in results if r.get("score", 0) >= min_score]
     return results

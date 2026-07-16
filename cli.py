@@ -15,13 +15,16 @@ def get_storage() -> Storage:
 def cmd_search(args: argparse.Namespace) -> None:
     """Search the knowledge base."""
     storage = get_storage()
-    results = storage.search(args.query, limit=args.limit)
+    results = storage.search(args.query, limit=args.limit, explain=getattr(args, "explain", False))
     if not results:
         print("No results found.")
         return
     for r in results:
         print(f"{r['score']:.2f} [{r['collection']}] {r['title']}")
         print(f"  {r['content'][:100]}...")
+        if "explain" in r:
+            e = r["explain"]
+            print(f"  explain: base={e['base_score']}, boost={e['type_boost']}, source={e['source']}")
         print()
 
 
@@ -73,6 +76,7 @@ def main() -> None:
     sp = subparsers.add_parser("search", help="Search knowledge base")
     sp.add_argument("query", help="Search query")
     sp.add_argument("-l", "--limit", type=int, default=10)
+    sp.add_argument("-e", "--explain", action="store_true", help="Show scoring breakdown")
     sp.set_defaults(func=cmd_search)
 
     # add

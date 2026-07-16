@@ -258,6 +258,7 @@ class Storage:
         collections: list[str] | None = None,
         limit: int = 10,
         strategy: str | None = None,
+        explain: bool = False,
     ) -> list[dict]:
         """Search with auto strategy selection."""
         if strategy is None:
@@ -274,10 +275,18 @@ class Storage:
                     seen.add(r["path"])
 
         for r in results:
+            base_score = r.get("score", 0)
             boost = type_boost(query, r)
             if boost > 0:
-                r["score"] = min(1.0, r.get("score", 0) + boost)
+                r["score"] = min(1.0, base_score + boost)
                 r["boost"] = boost
+            if explain:
+                r["explain"] = {
+                    "base_score": round(base_score, 3),
+                    "type_boost": round(boost, 3),
+                    "final_score": round(r.get("score", 0), 3),
+                    "source": r.get("source", "unknown"),
+                }
 
         results.sort(key=lambda x: -x.get("score", 0))
         return results[:limit]
