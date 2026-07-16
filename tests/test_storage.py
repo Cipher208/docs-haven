@@ -95,6 +95,23 @@ class TestStorage:
         collections = tmp_storage.list_collections()
         assert collections == []
 
+    def test_list_collections_domain(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("core__fastapi", "guide.md", "FastAPI guide", "FastAPI Guide"),
+        )
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("misc", "notes.md", "Notes", "Notes"),
+        )
+        conn.commit()
+
+        collections = tmp_storage.list_collections()
+        by_name = {c["name"]: c for c in collections}
+        assert by_name["core__fastapi"]["domain"] == "core"
+        assert by_name["misc"]["domain"] is None
+
     def test_get_nonexistent(self, tmp_storage):
         result = tmp_storage.get("nonexistent.md")
         assert result is None

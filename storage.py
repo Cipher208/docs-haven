@@ -418,12 +418,14 @@ class Storage:
                    GROUP_CONCAT(context, '|') as contexts
                    FROM documents GROUP BY collection"""
             ).fetchall()
+            from uri import VALID_DOMAINS
             return [
                 {
                     "name": r["collection"],
                     "count": r["docs"],
                     "chunks": r["chunks"],
                     "contexts": r["contexts"].split("|") if r["contexts"] else [],
+                    "domain": r["collection"].split("__")[0] if "__" in r["collection"] and r["collection"].split("__")[0] in VALID_DOMAINS else None,
                 }
                 for r in rows
             ]
