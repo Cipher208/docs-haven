@@ -205,3 +205,35 @@ class TestStorageSearch:
         results = tmp_storage.search("Test")
         assert len(results) > 0
         assert "explain" not in results[0]
+
+    def test_check_stale_deleted_file(self, tmp_storage):
+        repo_dir = tmp_storage.repos_dir / "test"
+        repo_dir.mkdir()
+
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, content_hash, title) VALUES (?, ?, ?, ?, ?)",
+            ("test", "deleted.md", "content", "hash123", "Deleted"),
+        )
+        conn.commit()
+
+        stale = tmp_storage.check_stale("test")
+        assert len(stale) == 1
+        assert stale[0]["reason"] == "file_deleted"
+
+    def test_check_stale_symlink(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        repo_dir = tmp_storage.repos_dir / "test"
+        repo_dir.mkdir()
+        symlink = repo_dir / "link.md"
+        symlink.symlink_to(repo_dir / "nonexistent.md")
+
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, content_hash, title) VALUES (?, ?, ?, ?, ?)",
+            ("test", "link.md", "content", "hash123", "Link"),
+        )
+        conn.commit()
+
+        stale = tmp_storage.check_stale("test")
+        assert len(stale) == 1
+        assert stale[0]["reason"] == "symlink_skipped"

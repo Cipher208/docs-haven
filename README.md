@@ -16,7 +16,7 @@
 - ⚡ **Instant search** — SQLite FTS5 finds relevant docs in <100ms
 - 🔌 **Works with any AI agent** — Claude, Cursor, Gemini, Codex via MCP
 - 🏠 **100% local** — no cloud, no API keys, no data leaves your machine
-- 📦 **Zero dependencies** — built into Python, no Docker or external services
+- 📦 **Minimal dependencies** — only `mcp[cli]`, no Docker or external services
 
 ## Features
 
@@ -24,7 +24,7 @@
 - **URI routing** — organize knowledge by domain: `core://`, `ref://`, `guide://`
 - **Git sync** — compressed chunks for multi-machine sync (no merge conflicts)
 - **Conflict detection** — flag contradictions when adding documents
-- **MCP server** — 14 tools for any MCP-compatible agent
+- **MCP server** — 16 tools for any MCP-compatible agent
 - **Document chunking** — split long documents for better search precision
 
 ## Installation
@@ -202,7 +202,7 @@ Then ask your agent:
 
 </details>
 
-## MCP Tools (18)
+## MCP Tools (16)
 
 | Tool | Description |
 |------|-------------|
@@ -227,7 +227,7 @@ Then ask your agent:
 
 | Feature | DocsHaven | QMD | Elasticsearch | Context7 |
 |---------|-----------|-----|---------------|----------|
-| Dependencies | 0 (stdlib) | 1 (npm) | JVM + plugins | External service |
+| Dependencies | 1 (mcp) | 1 (npm) | JVM + plugins | External service |
 | Setup time | 10 seconds | 5 minutes | 30+ minutes | API key needed |
 | MCP server | Built-in | No | No | Yes |
 | URI routing | Yes | No | No | No |
@@ -240,7 +240,7 @@ Then ask your agent:
 <details>
 <summary><b>What is DocsHaven?</b></summary>
 
-DocsHaven is a local knowledge base designed for AI agents. It provides full-text search via SQLite FTS5, organizes knowledge by URI domains (core://, ref://, guide://), and detects contradictions when adding new documents. It runs as an MCP server with 14 tools.
+DocsHaven is a local knowledge base designed for AI agents. It provides full-text search via SQLite FTS5, organizes knowledge by URI domains (core://, ref://, guide://), and detects contradictions when adding new documents. It runs as an MCP server with 16 tools.
 
 </details>
 

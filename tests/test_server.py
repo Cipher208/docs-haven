@@ -62,3 +62,35 @@ async def test_kb_uri_domains():
     result = await kb_uri_domains()
     assert isinstance(result, dict)
     assert "core" in result
+
+
+@pytest.mark.asyncio
+async def test_kb_update(mock_storage):
+    """Test update tool."""
+    from server import kb_update
+
+    mock_storage._get_conn.return_value.execute.return_value = None
+    result = await kb_update("test/doc.md", "new content", title="New Title")
+    assert result["status"] == "updated"
+    assert result["file_path"] == "test/doc.md"
+
+
+@pytest.mark.asyncio
+async def test_kb_delete(mock_storage):
+    """Test delete tool."""
+    from server import kb_delete
+
+    mock_storage._get_conn.return_value.execute.return_value = None
+    result = await kb_delete("test/doc.md")
+    assert result["status"] == "deleted"
+    assert result["file_path"] == "test/doc.md"
+
+
+@pytest.mark.asyncio
+async def test_kb_conflict_check():
+    """Test conflict check tool."""
+    from server import kb_conflict_check
+
+    result = await kb_conflict_check("FastAPI Guide", "How to use FastAPI")
+    assert isinstance(result, dict)
+    assert "has_conflicts" in result
