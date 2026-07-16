@@ -1,10 +1,27 @@
 # Fix Report — 2026-07-16
 
-> 20 issues fixed across P0-P3 priorities. 52 tests passing.
+> Audit: 20 issues found. 16 addressed (14 fixed, 2 deferred). 52 tests passing.
 
 ---
 
-## P0 (Critical) — 4 fixes
+## Summary
+
+| Priority | Found | Fixed | Deferred |
+|----------|-------|-------|----------|
+| P0 (Critical) | 4 | 4 | 0 |
+| P1 (High) | 6 | 5 | 0 |
+| P2 (Medium) | 6 | 2 | 1 |
+| P3 (Low) | 4 | 3 | 1 |
+| **Total** | **20** | **14** | **2** |
+
+Notes:
+- PRAGMAs (P1 #5) already done in P0 — not counted separately
+- Server tests (P1 #10) done as part of P1 — not duplicated
+- Error dict anti-pattern (P2 #11) deferred — breaking change
+- URI wildcard matching (P3 #14) deferred — not critical
+- Search highlighting, Document CRUD (P2 #15, #16) not addressed in this pass
+
+## P0 (Critical) — 4/4 fixed
 
 | # | Issue | File | Fix |
 |---|-------|------|-----|
@@ -24,21 +41,21 @@
 | 9 | Content-hash staleness | storage.py:126 | Added content_hash column, SHA-256, check_stale() method |
 | 10 | No server tests | tests/test_server.py | 5 async tests for MCP tools |
 
-## P2 (Medium) — 3 fixes
+## P2 (Medium) — 2 fixes + 1 deferred
 
 | # | Issue | File | Fix |
 |---|-------|------|-----|
 | 11 | Missing type hints | sync.py, conflicts.py, config.py | Added return type annotations |
 | 12 | No HTTP transport | server.py:222 | Added --http option for uvicorn |
-| 13 | import subprocess inside function | storage.py:194 | Moved to top-level import |
+| 13 | Error dict anti-pattern | — | Deferred: breaking change requires updating all callers |
 
-## P3 (Low) — 3 fixes (already done or not applicable)
+## P3 (Low) — 3 fixes
 
 | # | Issue | Status |
 |---|-------|--------|
 | 14 | chunk_text("") returns [""] | ✅ Fixed (returns []) |
 | 15 | No tests for server.py | ✅ Fixed (5 tests added) |
-| 16 | URI wildcard matching | Deferred (not critical) |
+| 16 | import subprocess inside function | ✅ Fixed (moved to top-level) |
 
 ---
 
