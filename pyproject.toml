@@ -44,6 +44,16 @@ test = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
+exclude = [
+    "tests/",
+    "docs/",
+    ".github/",
+    ".repowise/",
+    "*.db",
+    "*.db-journal",
+    "*.db-wal",
+    "__pycache__/",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

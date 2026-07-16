@@ -1,6 +1,7 @@
 # DocsHaven
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![PyPI version](https://img.shields.io/pypi/v/docs-haven.svg)](https://pypi.org/project/docs-haven/)
 [![GitHub stars](https://img.shields.io/github/stars/Cipher208/docs-haven)](https://github.com/Cipher208/docs-haven/stargazers)
 [![GitHub last commit](https://img.shields.io/github/last-commit/Cipher208/docs-haven)](https://github.com/Cipher208/docs-haven/commits/main)
 [![CI](https://github.com/Cipher208/docs-haven/actions/workflows/ci.yml/badge.svg)](https://github.com/Cipher208/docs-haven/actions/workflows/ci.yml)
@@ -27,6 +28,12 @@
 - **Document chunking** — split long documents for better search precision
 
 ## Installation
+
+```bash
+pip install docs-haven
+```
+
+Or from source:
 
 ```bash
 git clone https://github.com/Cipher208/docs-haven.git
