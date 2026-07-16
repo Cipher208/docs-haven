@@ -26,9 +26,9 @@ def storage_with_docs():
             ("test", "api.md", "FastAPI REST API endpoints", "FastAPI API"),
         )
         conn.commit()
-        conn.close()
 
         yield storage
+        storage.close()
 
 
 class TestConflictDetector:
@@ -39,6 +39,7 @@ class TestConflictDetector:
             result = detector.detect("New Document", "Some content")
             assert result.has_conflicts is False
             assert result.judgment_required is False
+            storage.close()
 
     def test_detects_similar_title(self, storage_with_docs):
         detector = ConflictDetector(storage_with_docs)

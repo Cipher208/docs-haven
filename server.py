@@ -1,6 +1,7 @@
 """DocsHaven — local knowledge base for AI agents with SQLite FTS5 search."""
 
 import logging
+import sqlite3
 import threading
 from pathlib import Path
 
@@ -122,7 +123,7 @@ async def kb_update(file_path: str, content: str, title: str | None = None) -> d
             )
         conn.commit()
         return {"status": "updated", "file_path": file_path}
-    except Exception as e:
+    except sqlite3.Error as e:
         return {"error": str(e)}
 
 
@@ -139,7 +140,7 @@ async def kb_delete(file_path: str) -> dict:
         conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
         conn.commit()
         return {"status": "deleted", "file_path": file_path}
-    except Exception as e:
+    except sqlite3.Error as e:
         return {"error": str(e)}
 
 

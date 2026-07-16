@@ -12,7 +12,9 @@ from storage import Storage, auto_strategy, chunk_text, type_boost
 def tmp_storage():
     """Provide a clean temporary storage."""
     with tempfile.TemporaryDirectory() as d:
-        yield Storage(Path(d))
+        storage = Storage(Path(d))
+        yield storage
+        storage.close()
 
 
 @pytest.fixture

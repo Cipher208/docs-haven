@@ -105,6 +105,12 @@ class Storage:
         self._conn_lock = threading.Lock()
         self._init_db()
 
+    def close(self):
+        """Close the database connection."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
     def _get_conn(self) -> sqlite3.Connection:
         """Get or create a persistent connection with WAL mode and performance PRAGMAs."""
         if self._conn is None:
@@ -226,7 +232,7 @@ class Storage:
                         )
                         total_chunks += 1
                     indexed += 1
-                except Exception as e:
+                except (OSError, sqlite3.Error) as e:
                     logger.debug("Skipping %s: %s", f, e)
                     continue
         conn.commit()
@@ -321,7 +327,7 @@ class Storage:
                 }
                 for r in rows
             ]
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.debug("FTS5 search failed: %s", e)
             return []
 
@@ -366,7 +372,7 @@ class Storage:
                 }
                 for r in rows
             ]
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.debug("LIKE search failed: %s", e)
             return []
 
@@ -397,7 +403,7 @@ class Storage:
             if row:
                 return dict(row)
             return None
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.debug("Get failed: %s", e)
             return None
 
@@ -420,7 +426,7 @@ class Storage:
                 }
                 for r in rows
             ]
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.debug("List collections failed: %s", e)
             return []
 
@@ -440,7 +446,7 @@ class Storage:
                 "db_path": str(self.db_path),
                 "db_size_kb": round(self.db_path.stat().st_size / 1024) if self.db_path.exists() else 0,
             }
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
             logger.debug("Stats failed: %s", e)
             return {"total_chunks": 0, "total_documents": 0, "collections": 0, "repos": 0, "db_path": "", "db_size_kb": 0}
 
@@ -455,7 +461,7 @@ class Storage:
         try:
             tmp_path.write_text(json.dumps(config, indent=2))
             tmp_path.replace(self.config_path)
-        except Exception:
+        except OSError:
             if tmp_path.exists():
                 tmp_path.unlink()
             raise
@@ -476,7 +482,9 @@ class Storage:
 
             for row in rows:
                 file_path = repo_dir / row["file_path"]
-                if file_path.exists():
+                if file_path.is_symlink():
+                    stale.append({"file_path": row["file_path"], "reason": "symlink_skipped"})
+                elif file_path.exists():
                     current_hash = hashlib.sha256(file_path.read_text(errors="ignore").encode()).hexdigest()
                     if current_hash != row["content_hash"]:
                         stale.append({"file_path": row["file_path"], "reason": "content_changed"})
@@ -484,6 +492,6 @@ class Storage:
                     stale.append({"file_path": row["file_path"], "reason": "file_deleted"})
 
             return stale
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
             logger.debug("Stale check failed: %s", e)
             return []
