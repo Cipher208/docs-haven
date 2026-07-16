@@ -282,6 +282,20 @@ class Storage:
         results.sort(key=lambda x: -x.get("score", 0))
         return results[:limit]
 
+    def _row_to_result(self, row: sqlite3.Row, source: str, highlighted: str | None = None, score: float | None = None) -> dict:
+        """Convert a database row to a search result dict."""
+        return {
+            "path": f"{row['collection']}/{row['file_path']}",
+            "content": row["content"][:500],
+            "highlighted": highlighted if highlighted else row["content"][:200],
+            "collection": row["collection"],
+            "title": row["title"],
+            "chunk": row["chunk_index"],
+            "total_chunks": row["total_chunks"],
+            "score": score if score is not None else (round(-row["rank"], 3) if row["rank"] else 0),
+            "source": source,
+        }
+
     def _search_fts5(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
         """FTS5 search with BM25 ranking."""
         conn = self._get_conn()
@@ -316,20 +330,7 @@ class Storage:
                 params = [fts_query, limit]
 
             rows = conn.execute(sql, params).fetchall()
-            return [
-                {
-                    "path": f"{r['collection']}/{r['file_path']}",
-                    "content": r["content"][:500],
-                    "highlighted": r["highlighted"] if r["highlighted"] else r["content"][:200],
-                    "collection": r["collection"],
-                    "title": r["title"],
-                    "chunk": r["chunk_index"],
-                    "total_chunks": r["total_chunks"],
-                    "score": round(-r["rank"], 3) if r["rank"] else 0,
-                    "source": "fts5",
-                }
-                for r in rows
-            ]
+            return [self._row_to_result(r, "fts5", r["highlighted"]) for r in rows]
         except sqlite3.Error as e:
             logger.debug("FTS5 search failed: %s", e)
             return []
@@ -362,19 +363,7 @@ class Storage:
                 params = [f"%{escaped}%", f"%{escaped}%", limit]
 
             rows = conn.execute(sql, params).fetchall()
-            return [
-                {
-                    "path": f"{r['collection']}/{r['file_path']}",
-                    "content": r["content"][:500],
-                    "collection": r["collection"],
-                    "title": r["title"],
-                    "chunk": r["chunk_index"],
-                    "total_chunks": r["total_chunks"],
-                    "score": 0.5,
-                    "source": "like",
-                }
-                for r in rows
-            ]
+            return [self._row_to_result(r, "like", None, score=0.5) for r in rows]
         except sqlite3.Error as e:
             logger.debug("LIKE search failed: %s", e)
             return []

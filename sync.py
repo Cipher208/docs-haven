@@ -44,6 +44,14 @@ class Manifest:
         m.chunks = [ChunkEntry(**c) for c in d.get("chunks", [])]
         return m
 
+    @classmethod
+    def from_file(cls, path: Path) -> "Manifest":
+        """Load manifest from disk, return empty if missing."""
+        if not path.exists():
+            return cls()
+        with open(path) as f:
+            return cls.from_dict(json.load(f))
+
 
 class Syncer:
     """Handle compressed chunk sync between PC and VPS."""
@@ -68,7 +76,7 @@ class Syncer:
         Returns:
             {chunk_id, collections, documents, isEmpty}
         """
-        manifest = self._read_manifest()
+        manifest = Manifest.from_file(self.manifest_path)
 
         # Build chunk content
         chunk: dict = {
@@ -144,7 +152,7 @@ class Syncer:
         Returns:
             {chunks_imported, collections_imported, documents_imported, chunks_skipped}
         """
-        manifest = self._read_manifest()
+        manifest = Manifest.from_file(self.manifest_path)
         if not manifest.chunks:
             return {"chunks_imported": 0}
 
@@ -173,7 +181,7 @@ class Syncer:
 
     def status(self) -> dict:
         """Get sync status."""
-        manifest = self._read_manifest()
+        manifest = Manifest.from_file(self.manifest_path)
         local_chunks = len(manifest.chunks)
 
         # Count actual chunk files
@@ -184,12 +192,6 @@ class Syncer:
             "chunk_files": actual_files,
             "manifest_size": self.manifest_path.stat().st_size if self.manifest_path.exists() else 0,
         }
-
-    def _read_manifest(self) -> Manifest:
-        if not self.manifest_path.exists():
-            return Manifest()
-        with open(self.manifest_path) as f:
-            return Manifest.from_dict(json.load(f))
 
     def _write_manifest(self, manifest: Manifest) -> None:
         with open(self.manifest_path, "w") as f:
