@@ -17,6 +17,8 @@ import subprocess
 import threading
 from pathlib import Path
 
+from result import Err, Ok
+
 logger = logging.getLogger(__name__)
 
 
@@ -185,13 +187,29 @@ class Storage:
 
         conn.commit()
 
+    def _index_file(self, conn: sqlite3.Connection, f: Path, repo_dir: Path, name: str, description: str | None) -> int:
+        """Index a single file into FTS5. Returns number of chunks inserted."""
+        content = f.read_text(errors="ignore")
+        rel_path = str(f.relative_to(repo_dir))
+        title = f.stem.replace("-", " ").replace("_", " ")
+        chunks = chunk_text(content)
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        for i, chunk in enumerate(chunks):
+            conn.execute(
+                """INSERT OR REPLACE INTO documents
+                (collection, file_path, content, content_hash, extension, title, context, chunk_index, total_chunks)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (name, rel_path, chunk, content_hash, f.suffix, title, description or "", i, len(chunks)),
+            )
+        return len(chunks)
+
     def add_repo(
         self,
         url: str,
         tags: list[str] | None = None,
         description: str | None = None,
         mask: str | None = None,
-    ) -> dict:
+    ) -> Ok[dict] | Err:
         """Clone repo and index documents into FTS5 with chunking."""
         name = url.rstrip("/").split("/")[-1].replace(".git", "")
         repo_dir = self.repos_dir / name
@@ -204,37 +222,20 @@ class Storage:
                 timeout=120,
             )
             if result.returncode != 0:
-                return {"error": f"Clone failed: {result.stderr}"}
+                return Err(f"Clone failed: {result.stderr}")
 
         file_mask = mask or "**/*.md"
-        files = list(repo_dir.glob(file_mask))
+        files = [f for f in repo_dir.glob(file_mask) if f.is_file() and f.stat().st_size < 500_000]
         indexed = 0
         total_chunks = 0
 
         conn = self._get_conn()
         for f in files:
-            if f.is_file() and f.stat().st_size < 500_000:
-                try:
-                    content = f.read_text(errors="ignore")
-                    rel_path = str(f.relative_to(repo_dir))
-                    title = f.stem.replace("-", " ").replace("_", " ")
-
-                    chunks = chunk_text(content)
-                    import hashlib
-
-                    content_hash = hashlib.sha256(content.encode()).hexdigest()
-                    for i, chunk in enumerate(chunks):
-                        conn.execute(
-                            """INSERT OR REPLACE INTO documents
-                            (collection, file_path, content, content_hash, extension, title, context, chunk_index, total_chunks)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (name, rel_path, chunk, content_hash, f.suffix, title, description or "", i, len(chunks)),
-                        )
-                        total_chunks += 1
-                    indexed += 1
-                except (OSError, sqlite3.Error) as e:
-                    logger.debug("Skipping %s: %s", f, e)
-                    continue
+            try:
+                total_chunks += self._index_file(conn, f, repo_dir, name, description)
+                indexed += 1
+            except (OSError, sqlite3.Error) as e:
+                logger.debug("Skipping %s: %s", f, e)
         conn.commit()
 
         config = self._load_config()
@@ -247,7 +248,7 @@ class Storage:
         }
         self._save_config(config)
 
-        return {"name": name, "status": "added", "files_indexed": indexed, "chunks": total_chunks}
+        return Ok({"name": name, "status": "added", "files_indexed": indexed, "chunks": total_chunks})
 
     def search(
         self,

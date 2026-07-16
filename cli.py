@@ -1,5 +1,6 @@
 """CLI for DocsHaven — search, add repos, manage knowledge base."""
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -19,7 +20,7 @@ def check_error(result: dict, action: str = "Operation") -> bool:
     return False
 
 
-def cmd_search(args):
+def cmd_search(args: argparse.Namespace) -> None:
     """Search the knowledge base."""
     storage = get_storage()
     results = storage.search(args.query, limit=args.limit)
@@ -32,16 +33,18 @@ def cmd_search(args):
         print()
 
 
-def cmd_add(args):
+def cmd_add(args: argparse.Namespace) -> None:
     """Add a repository."""
     storage = get_storage()
     result = storage.add_repo(args.url, description=args.description)
-    if check_error(result, "Add repo"):
+    if result.is_err():
+        print(f"Error (Add repo): {result.error}")
         sys.exit(1)
-    print(f"Added {result['name']}: {result['files_indexed']} files, {result.get('chunks', 0)} chunks")
+    data = result.value
+    print(f"Added {data['name']}: {data['files_indexed']} files, {data.get('chunks', 0)} chunks")
 
 
-def cmd_stats(args):
+def cmd_stats(args: argparse.Namespace) -> None:
     """Show knowledge base statistics."""
     storage = get_storage()
     stats = storage.stats()
@@ -51,7 +54,7 @@ def cmd_stats(args):
     print(f"DB size: {stats['db_size_kb']}KB")
 
 
-def cmd_uri(args):
+def cmd_uri(args: argparse.Namespace) -> None:
     """URI operations."""
     storage = get_storage()
     router = URIRouter(storage)
@@ -70,9 +73,7 @@ def cmd_uri(args):
             print(f"  {d}: {info['count']} collections")
 
 
-def main():
-    import argparse
-
+def main() -> None:
     parser = argparse.ArgumentParser(description="DocsHaven CLI")
     subparsers = parser.add_subparsers(dest="command")
 

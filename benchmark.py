@@ -9,7 +9,7 @@ from storage import Storage
 
 def generate_docs(n: int) -> dict[str, str]:
     """Generate n test documents."""
-    docs = {}
+    docs: dict[str, str] = {}
     for i in range(n):
         docs[f"doc_{i:04d}.md"] = f"""# Document {i}
 
@@ -67,7 +67,7 @@ def benchmark_search(storage: Storage, n_queries: int = 100) -> dict:
         "validation",
     ]
 
-    times = []
+    times: list[float] = []
     for _ in range(n_queries):
         for q in queries:
             start = time.perf_counter()
@@ -86,7 +86,7 @@ def benchmark_search(storage: Storage, n_queries: int = 100) -> dict:
     }
 
 
-def run_benchmark():
+def run_benchmark() -> None:
     """Run full benchmark suite."""
     print("=" * 60)
     print("DocsHaven Benchmark")
@@ -111,6 +111,8 @@ def run_benchmark():
         print(f"  Max:           {stats['max_ms']}ms")
         print(f"  P95:           {stats['p95_ms']}ms")
         print(f"  Throughput:    {stats['queries_per_second']} queries/sec")
+
+        storage.close()
 
         print("\n" + "=" * 60)
         print("Benchmark complete!")

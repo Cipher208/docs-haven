@@ -115,6 +115,26 @@ class Syncer:
             "isEmpty": False,
         }
 
+    def _import_chunk_data(self, chunk_data: dict, storage) -> tuple[int, int]:
+        """Import a single chunk's data into storage. Returns (collections, docs) counts."""
+        if storage is None:
+            collections = chunk_data.get("collections", {})
+            return len(collections), sum(len(d) for d in collections.values())
+
+        conn = storage._get_conn()
+        collections = chunk_data.get("collections", {})
+        for collection_name, docs in collections.items():
+            for doc in docs:
+                if isinstance(doc, dict):
+                    conn.execute(
+                        """INSERT OR REPLACE INTO documents
+                        (collection, file_path, content, title)
+                        VALUES (?, ?, ?, ?)""",
+                        (collection_name, doc.get("path", ""), doc.get("content", ""), doc.get("title", "")),
+                    )
+        conn.commit()
+        return len(collections), sum(len(d) for d in collections.values())
+
     def import_chunks(self, storage=None) -> dict:
         """Import all chunks not yet applied.
 
@@ -141,27 +161,13 @@ class Syncer:
                 result["chunks_skipped"] += 1
                 continue
 
-            # Read and decompress
             with gzip.open(chunk_path, "rb") as f:
                 chunk_data = json.loads(f.read())
 
-            # Import into storage if provided
-            if storage is not None:
-                conn = storage._get_conn()
-                for collection_name, docs in chunk_data.get("collections", {}).items():
-                    for doc in docs:
-                        if isinstance(doc, dict):
-                            conn.execute(
-                                """INSERT OR REPLACE INTO documents
-                                (collection, file_path, content, title)
-                                VALUES (?, ?, ?, ?)""",
-                                (collection_name, doc.get("path", ""), doc.get("content", ""), doc.get("title", "")),
-                            )
-                conn.commit()
-
+            n_collections, n_docs = self._import_chunk_data(chunk_data, storage)
             result["chunks_imported"] += 1
-            result["collections_imported"] += len(chunk_data.get("collections", {}))
-            result["documents_imported"] += sum(len(docs) for docs in chunk_data.get("collections", {}).values())
+            result["collections_imported"] += n_collections
+            result["documents_imported"] += n_docs
 
         return result
 

@@ -85,7 +85,10 @@ async def kb_add_repo(
         description: Optional description
         mask: File pattern (default: **/*.md). Use **/*.rst for Sphinx, **/*.py for Python.
     """
-    return _get_storage().add_repo(url, tags, description, mask)
+    result = _get_storage().add_repo(url, tags, description, mask)
+    if result.is_err():
+        return {"error": result.error}
+    return result.value
 
 
 @mcp.tool()
