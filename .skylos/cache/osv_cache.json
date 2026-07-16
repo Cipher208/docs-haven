@@ -1,0 +1,77 @@
+{
+  "PyPI:mcp:1.0.0": [
+    {
+      "vuln_id": "GHSA-3qhf-m339-9g5v",
+      "aliases": [],
+      "summary": "Known vulnerability (GHSA-3qhf-m339-9g5v)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
+    },
+    {
+      "vuln_id": "GHSA-9h52-p55h-vw2f",
+      "aliases": [],
+      "summary": "Known vulnerability (GHSA-9h52-p55h-vw2f)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
+    },
+    {
+      "vuln_id": "GHSA-j975-95f5-7wqh",
+      "aliases": [],
+      "summary": "Known vulnerability (GHSA-j975-95f5-7wqh)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
+    },
+    {
+      "vuln_id": "GHSA-jpw9-pfvf-9f58",
+      "aliases": [],
+      "summary": "Known vulnerability (GHSA-jpw9-pfvf-9f58)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
+    },
+    {
+      "vuln_id": "GHSA-vj7q-gjh5-988w",
+      "aliases": [],
+      "summary": "Known vulnerability (GHSA-vj7q-gjh5-988w)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
+    },
+    {
+      "vuln_id": "PYSEC-2026-1616",
+      "aliases": [],
+      "summary": "Known vulnerability (PYSEC-2026-1616)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
+    },
+    {
+      "vuln_id": "PYSEC-2026-1617",
+      "aliases": [],
+      "summary": "Known vulnerability (PYSEC-2026-1617)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
+    },
+    {
+      "vuln_id": "PYSEC-2026-1618",
+      "aliases": [],
+      "summary": "Known vulnerability (PYSEC-2026-1618)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
+    }
+  ],
+  "_ts": 1784234905.6942317
+}
