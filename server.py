@@ -273,6 +273,6 @@ if __name__ == "__main__":
 
         port = int(sys.argv[sys.argv.index("--http") + 1]) if len(sys.argv) > sys.argv.index("--http") + 1 else 8000
         print(f"Starting HTTP server on port {port}...")
-        uvicorn.run(mcp.app, host="0.0.0.0", port=port)
+        uvicorn.run(mcp.streamable_http_app(), host="0.0.0.0", port=port)
     else:
         mcp.run()

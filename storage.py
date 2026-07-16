@@ -101,26 +101,22 @@ class Storage:
         self.config_path = data_dir / "config.json"
         self.db_path = data_dir / "docshaven.db"
         self.repos_dir.mkdir(parents=True, exist_ok=True)
-        self._conn = None
+        self._conn: sqlite3.Connection | None = None
         self._conn_lock = threading.Lock()
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get or create a persistent connection with WAL mode and performance PRAGMAs."""
         if self._conn is None:
-            self._conn_lock.acquire()
-            try:
-                if self._conn is None:
-                    self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-                    self._conn.row_factory = sqlite3.Row
-                    self._conn.execute("PRAGMA journal_mode=WAL")
-                    self._conn.execute("PRAGMA busy_timeout=5000")
-                    self._conn.execute("PRAGMA synchronous=NORMAL")
-                    self._conn.execute("PRAGMA cache_size=-64000")
-                    self._conn.execute("PRAGMA temp_store=MEMORY")
-                    self._conn.execute("PRAGMA mmap_size=268435456")
-            finally:
-                self._conn_lock.release()
+            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA cache_size=-64000")
+            conn.execute("PRAGMA temp_store=MEMORY")
+            conn.execute("PRAGMA mmap_size=268435456")
+            self._conn = conn
         return self._conn
 
     def _init_db(self):
