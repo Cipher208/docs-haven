@@ -279,10 +279,34 @@ docs-haven/
 ├── uri.py           # URI routing
 ├── sync.py          # Git sync (compressed chunks)
 ├── conflicts.py     # Conflict detection
+├── benchmark.py     # Performance benchmarks
 ├── tests/           # pytest test suite (39 tests)
 ├── docs/            # Documentation
 └── pyproject.toml   # Package config
 ```
+
+## Performance
+
+Benchmarked on Linux (Python 3.14, SQLite FTS5):
+
+| Operation | Time |
+|-----------|------|
+| Index 1,000 docs | 0.076s (13,219 docs/sec) |
+| Search (avg) | 3.3ms |
+| Search (P95) | 4.3ms |
+| Throughput | 299 queries/sec |
+
+Run benchmark: `python benchmark.py`
+
+## Integrations
+
+| Client | Config | Status |
+|--------|--------|--------|
+| [Claude Desktop](docs/integrations/claude-desktop.md) | `claude_desktop_config.json` | ✅ |
+| [Cursor](docs/integrations/cursor.md) | `.cursor/mcp.json` | ✅ |
+| [Gemini CLI](docs/integrations/gemini.md) | `gemini mcp add` | ✅ |
+| VS Code (Copilot) | `.vscode/mcp.json` | ✅ |
+| Codex | `.codex/config.toml` | ✅ |
 
 ## Development
 
