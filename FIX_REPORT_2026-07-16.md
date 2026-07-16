@@ -34,21 +34,25 @@
 | 9 | Content-hash staleness | storage.py:126 | Added content_hash column, SHA-256, check_stale() method |
 | 10 | No server tests | tests/test_server.py | 5 async tests for MCP tools |
 
-## P2 (Medium) — 2 fixes + 1 deferred
+## P2 (Medium) — 6 fixes
 
 | # | Issue | File | Fix |
 |---|-------|------|-----|
-| 11 | Missing type hints | sync.py, conflicts.py, config.py | Added return type annotations |
-| 12 | No HTTP transport | server.py:222 | Added --http option for uvicorn |
-| 13 | Error dict anti-pattern | — | Deferred: breaking change requires updating all callers |
+| 11 | Error dict anti-pattern | result.py, cli.py | Added Ok/Err Result type, check_error helper |
+| 12 | Missing type hints | sync.py, conflicts.py, config.py | Added return type annotations |
+| 13 | No HTTP transport | server.py:222 | Added --http option for uvicorn |
+| 14 | Silent exception swallowing | storage.py | Added logging to all except blocks |
+| 15 | Search highlighting | storage.py | FTS5 snippet() for highlighted excerpts |
+| 16 | Document CRUD | server.py | Added kb_update and kb_delete tools |
 
-## P3 (Low) — 3 fixes
+## P3 (Low) — 4 fixes
 
-| # | Issue | Status |
-|---|-------|--------|
-| 14 | chunk_text("") returns [""] | ✅ Fixed (returns []) |
-| 15 | No tests for server.py | ✅ Fixed (5 tests added) |
-| 16 | import subprocess inside function | ✅ Fixed (moved to top-level) |
+| # | Issue | File | Fix |
+|---|-------|------|-----|
+| 17 | chunk_text("") returns [""] | storage.py | Returns [] for empty input |
+| 18 | No tests for server.py | tests/test_server.py | 5 async tests |
+| 19 | import subprocess inside function | storage.py | Moved to top-level import |
+| 20 | URI wildcard matching | uri.py | Support core://fastapi/* glob patterns |
 
 ---
 

@@ -6,7 +6,13 @@ If similar docs exist, flag potential conflicts for human review.
 Uses Storage.search() instead of external QMD CLI.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from storage import Storage
 
 
 @dataclass

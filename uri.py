@@ -98,10 +98,7 @@ class URIRouter:
         if uri.path.endswith("/*"):
             # Wildcard: search all collections in domain
             prefix = f"{uri.domain}__"
-            collections = [
-                c["name"] for c in self.storage.list_collections()
-                if c.get("name", "").startswith(prefix)
-            ]
+            collections = [c["name"] for c in self.storage.list_collections() if c.get("name", "").startswith(prefix)]
             if not collections:
                 return []
             return self.storage.search(

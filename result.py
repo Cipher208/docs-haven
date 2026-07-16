@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 T = TypeVar("T")
 
@@ -11,6 +11,7 @@ T = TypeVar("T")
 @dataclass
 class Ok(Generic[T]):
     """Success result."""
+
     value: T
 
     def is_ok(self) -> bool:
@@ -26,6 +27,7 @@ class Ok(Generic[T]):
 @dataclass
 class Err:
     """Error result."""
+
     error: str
     code: str = "error"
 

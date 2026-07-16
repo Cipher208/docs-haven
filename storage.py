@@ -9,9 +9,11 @@ Features:
 - Persistent connection with pooling
 """
 
+import hashlib
 import json
 import logging
 import sqlite3
+import subprocess
 import threading
 from pathlib import Path
 
@@ -42,7 +44,7 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
             last_newline = chunk.rfind("\n\n")
             break_at = max(last_period, last_newline)
             if break_at > chunk_size // 2:
-                chunk = text[start:start + break_at + 1]
+                chunk = text[start : start + break_at + 1]
                 end = start + break_at + 1
 
         chunks.append(chunk.strip())
@@ -52,6 +54,7 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 
 
 # ── Auto Strategy ───────────────────────────────────────────────────────────
+
 
 def auto_strategy(query: str) -> str:
     """Pick search strategy based on query complexity."""
@@ -87,6 +90,7 @@ def type_boost(query: str, result: dict) -> float:
 
 
 # ── Storage ─────────────────────────────────────────────────────────────────
+
 
 class Storage:
     """SQLite FTS5-backed document storage with smart search strategies."""
@@ -182,9 +186,9 @@ class Storage:
     def add_repo(
         self,
         url: str,
-        tags: Optional[list[str]] = None,
-        description: Optional[str] = None,
-        mask: Optional[str] = None,
+        tags: list[str] | None = None,
+        description: str | None = None,
+        mask: str | None = None,
     ) -> dict:
         """Clone repo and index documents into FTS5 with chunking."""
         name = url.rstrip("/").split("/")[-1].replace(".git", "")
@@ -193,7 +197,9 @@ class Storage:
         if not repo_dir.exists():
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", url, str(repo_dir)],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
             if result.returncode != 0:
                 return {"error": f"Clone failed: {result.stderr}"}
@@ -213,6 +219,7 @@ class Storage:
 
                     chunks = chunk_text(content)
                     import hashlib
+
                     content_hash = hashlib.sha256(content.encode()).hexdigest()
                     for i, chunk in enumerate(chunks):
                         conn.execute(
@@ -243,9 +250,9 @@ class Storage:
     def search(
         self,
         query: str,
-        collections: Optional[list[str]] = None,
+        collections: list[str] | None = None,
         limit: int = 10,
-        strategy: Optional[str] = None,
+        strategy: str | None = None,
     ) -> list[dict]:
         """Search with auto strategy selection."""
         if strategy is None:
@@ -270,11 +277,11 @@ class Storage:
         results.sort(key=lambda x: -x.get("score", 0))
         return results[:limit]
 
-    def _search_fts5(self, query: str, collections: Optional[list[str]], limit: int) -> list[dict]:
+    def _search_fts5(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
         """FTS5 search with BM25 ranking."""
         conn = self._get_conn()
         try:
-            fts_query = f'"{query.replace(chr(34), chr(34)+chr(34))}"'
+            fts_query = f'"{query.replace(chr(34), chr(34) + chr(34))}"'
 
             if collections:
                 placeholders = ",".join("?" * len(collections))
@@ -322,7 +329,7 @@ class Storage:
             logger.debug("FTS5 search failed: %s", e)
             return []
 
-    def _search_like(self, query: str, collections: Optional[list[str]], limit: int) -> list[dict]:
+    def _search_like(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
         """LIKE fallback for when FTS5 fails or for hybrid search."""
         conn = self._get_conn()
         try:
@@ -367,7 +374,7 @@ class Storage:
             logger.debug("LIKE search failed: %s", e)
             return []
 
-    def get(self, file_path: str, chunk: Optional[int] = None) -> Optional[dict]:
+    def get(self, file_path: str, chunk: int | None = None) -> dict | None:
         """Get a document by path, optionally a specific chunk."""
         conn = self._get_conn()
         try:
@@ -459,7 +466,6 @@ class Storage:
 
     def check_stale(self, collection: str) -> list[dict]:
         """Check for stale documents by comparing content hashes."""
-        import hashlib
         conn = self._get_conn()
         try:
             repo_dir = self.repos_dir / collection
