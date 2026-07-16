@@ -258,6 +258,7 @@ class Storage:
         collections: list[str] | None = None,
         limit: int = 10,
         strategy: str | None = None,
+        *,
         explain: bool = False,
     ) -> list[dict]:
         """Search with auto strategy selection."""
