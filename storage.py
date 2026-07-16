@@ -129,6 +129,7 @@ class Storage:
                 collection TEXT NOT NULL,
                 file_path TEXT NOT NULL,
                 content TEXT NOT NULL,
+                content_hash TEXT DEFAULT '',
                 extension TEXT DEFAULT '',
                 title TEXT DEFAULT '',
                 context TEXT DEFAULT '',
@@ -212,12 +213,14 @@ class Storage:
                     title = f.stem.replace("-", " ").replace("_", " ")
 
                     chunks = chunk_text(content)
+                    import hashlib
+                    content_hash = hashlib.sha256(content.encode()).hexdigest()
                     for i, chunk in enumerate(chunks):
                         conn.execute(
                             """INSERT OR REPLACE INTO documents
-                            (collection, file_path, content, extension, title, context, chunk_index, total_chunks)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (name, rel_path, chunk, f.suffix, title, description or "", i, len(chunks)),
+                            (collection, file_path, content, content_hash, extension, title, context, chunk_index, total_chunks)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (name, rel_path, chunk, content_hash, f.suffix, title, description or "", i, len(chunks)),
                         )
                         total_chunks += 1
                     indexed += 1
@@ -451,3 +454,32 @@ class Storage:
             if tmp_path.exists():
                 tmp_path.unlink()
             raise
+
+    def check_stale(self, collection: str) -> list[dict]:
+        """Check for stale documents by comparing content hashes."""
+        import hashlib
+        conn = self._get_conn()
+        try:
+            repo_dir = self.repos_dir / collection
+            if not repo_dir.exists():
+                return []
+
+            stale = []
+            rows = conn.execute(
+                "SELECT file_path, content_hash FROM documents WHERE collection = ? AND chunk_index = 0",
+                (collection,),
+            ).fetchall()
+
+            for row in rows:
+                file_path = repo_dir / row["file_path"]
+                if file_path.exists():
+                    current_hash = hashlib.sha256(file_path.read_text(errors="ignore").encode()).hexdigest()
+                    if current_hash != row["content_hash"]:
+                        stale.append({"file_path": row["file_path"], "reason": "content_changed"})
+                else:
+                    stale.append({"file_path": row["file_path"], "reason": "file_deleted"})
+
+            return stale
+        except Exception as e:
+            logger.debug("Stale check failed: %s", e)
+            return []
