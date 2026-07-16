@@ -1,6 +1,7 @@
 """DocsHaven — local knowledge base for AI agents with SQLite FTS5 search."""
 
 import logging
+import threading
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -16,13 +17,16 @@ logger = logging.getLogger("docs-haven")
 mcp = FastMCP("docs-haven")
 
 _storage: Storage | None = None
+_storage_lock = threading.Lock()
 _sync_dir = Path.home() / ".docshaven-sync"
 
 
 def _get_storage() -> Storage:
     global _storage
     if _storage is None:
-        _storage = Storage(Path.home() / ".docshaven")
+        with _storage_lock:
+            if _storage is None:
+                _storage = Storage(Path.home() / ".docshaven")
     return _storage
 
 

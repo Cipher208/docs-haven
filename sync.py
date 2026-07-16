@@ -115,8 +115,11 @@ class Syncer:
             "isEmpty": False,
         }
 
-    def import_chunks(self) -> dict:
+    def import_chunks(self, storage=None) -> dict:
         """Import all chunks not yet applied.
+
+        Args:
+            storage: Optional Storage instance to import documents into.
 
         Returns:
             {chunks_imported, collections_imported, documents_imported, chunks_skipped}
@@ -142,7 +145,20 @@ class Syncer:
             with gzip.open(chunk_path, "rb") as f:
                 chunk_data = json.loads(f.read())
 
-            # Apply chunk data (caller handles actual import)
+            # Import into storage if provided
+            if storage is not None:
+                conn = storage._get_conn()
+                for collection_name, docs in chunk_data.get("collections", {}).items():
+                    for doc in docs:
+                        if isinstance(doc, dict):
+                            conn.execute(
+                                """INSERT OR REPLACE INTO documents
+                                (collection, file_path, content, title)
+                                VALUES (?, ?, ?, ?)""",
+                                (collection_name, doc.get("path", ""), doc.get("content", ""), doc.get("title", "")),
+                            )
+                conn.commit()
+
             result["chunks_imported"] += 1
             result["collections_imported"] += len(chunk_data.get("collections", {}))
             result["documents_imported"] += sum(len(docs) for docs in chunk_data.get("collections", {}).values())

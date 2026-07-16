@@ -10,6 +10,10 @@ Features:
 
 import json
 import sqlite3
+import threading
+
+import json
+import sqlite3
 from pathlib import Path
 
 # ── Chunking ────────────────────────────────────────────────────────────────
@@ -106,13 +110,27 @@ class Storage:
         self.config_path = data_dir / "config.json"
         self.db_path = data_dir / "docshaven.db"
         self.repos_dir.mkdir(parents=True, exist_ok=True)
+        self._conn = None
+        self._conn_lock = threading.Lock()
         self._init_db()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Get or create a persistent connection with WAL mode and performance PRAGMAs."""
+        if not hasattr(self, '_conn') or self._conn is None:
+            c = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            c.row_factory = sqlite3.Row
+            c.execute("PRAGMA journal_mode=WAL")
+            c.execute("PRAGMA busy_timeout=5000")
+            c.execute("PRAGMA synchronous=NORMAL")
+            c.execute("PRAGMA cache_size=-64000")
+            c.execute("PRAGMA temp_store=MEMORY")
+            c.execute("PRAGMA mmap_size=268435456")
+            self.__dict__['_conn'] = c
+        return self.__dict__['_conn']
 
     def _init_db(self):
         """Initialize SQLite database with FTS5 tables and chunk support."""
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
+        conn = self._get_conn()
 
         # Documents table
         conn.execute("""
@@ -165,14 +183,6 @@ class Storage:
         """)
 
         conn.commit()
-        conn.close()
-
-    def _get_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        return conn
 
     def add_repo(
         self,
@@ -205,30 +215,27 @@ class Storage:
         total_chunks = 0
 
         conn = self._get_conn()
-        try:
-            for f in files:
-                if f.is_file() and f.stat().st_size < 500_000:
-                    try:
-                        content = f.read_text(errors="ignore")
-                        rel_path = str(f.relative_to(repo_dir))
-                        title = f.stem.replace("-", " ").replace("_", " ")
+        for f in files:
+            if f.is_file() and f.stat().st_size < 500_000:
+                try:
+                    content = f.read_text(errors="ignore")
+                    rel_path = str(f.relative_to(repo_dir))
+                    title = f.stem.replace("-", " ").replace("_", " ")
 
-                        # Chunk long documents
-                        chunks = chunk_text(content)
-                        for i, chunk in enumerate(chunks):
-                            conn.execute(
-                                """INSERT OR REPLACE INTO documents
-                                (collection, file_path, content, extension, title, context, chunk_index, total_chunks)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                                (name, rel_path, chunk, f.suffix, title, description or "", i, len(chunks)),
-                            )
-                            total_chunks += 1
-                        indexed += 1
-                    except Exception:
-                        continue
-            conn.commit()
-        finally:
-            conn.close()
+                    # Chunk long documents
+                    chunks = chunk_text(content)
+                    for i, chunk in enumerate(chunks):
+                        conn.execute(
+                            """INSERT OR REPLACE INTO documents
+                            (collection, file_path, content, extension, title, context, chunk_index, total_chunks)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (name, rel_path, chunk, f.suffix, title, description or "", i, len(chunks)),
+                        )
+                        total_chunks += 1
+                    indexed += 1
+                except Exception:
+                    continue
+        conn.commit()
 
         # Save metadata
         config = self._load_config()
@@ -290,7 +297,9 @@ class Storage:
         """FTS5 search with BM25 ranking."""
         conn = self._get_conn()
         try:
-            fts_query = query.replace('"', '""')
+            # Sanitize FTS5 query: wrap in double quotes for literal matching
+            # Prevents AND/OR/NOT/* operators from being interpreted
+            fts_query = f'"{query.replace(chr(34), chr(34)+chr(34))}"'
 
             if collections:
                 placeholders = ",".join("?" * len(collections))
@@ -333,8 +342,6 @@ class Storage:
             ]
         except Exception:
             return []
-        finally:
-            conn.close()
 
     def _search_like(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
         """LIKE fallback for when FTS5 fails or for hybrid search."""
@@ -377,8 +384,8 @@ class Storage:
                 }
                 for r in rows
             ]
-        finally:
-            conn.close()
+        except Exception:
+            return []
 
     def get(self, file_path: str, chunk: int | None = None) -> dict | None:
         """Get a document by path, optionally a specific chunk."""
@@ -409,8 +416,8 @@ class Storage:
             if row:
                 return dict(row)
             return None
-        finally:
-            conn.close()
+        except Exception:
+            return None
 
     def list_collections(self) -> list[dict]:
         """List all collections with document counts."""
@@ -431,8 +438,8 @@ class Storage:
                 }
                 for r in rows
             ]
-        finally:
-            conn.close()
+        except Exception:
+            return []
 
     def stats(self) -> dict:
         """Get database statistics."""
@@ -450,8 +457,8 @@ class Storage:
                 "db_path": str(self.db_path),
                 "db_size_kb": round(self.db_path.stat().st_size / 1024) if self.db_path.exists() else 0,
             }
-        finally:
-            conn.close()
+        except Exception:
+            return {"total_chunks": 0, "total_documents": 0, "collections": 0, "repos": 0, "db_path": "", "db_size_kb": 0}
 
     def _load_config(self) -> dict:
         if self.config_path.exists():

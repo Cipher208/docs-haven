@@ -115,7 +115,6 @@ class TestStorageSearch:
             ("fastapi", "api.md", "FastAPI REST API endpoints", "FastAPI API"),
         )
         conn.commit()
-        conn.close()
 
         results = tmp_storage.search("FastAPI")
         assert len(results) > 0
@@ -132,7 +131,6 @@ class TestStorageSearch:
             ("sqlalchemy", "orm.md", "SQLAlchemy ORM guide", "ORM Guide"),
         )
         conn.commit()
-        conn.close()
 
         results = tmp_storage.search("tutorial", collections=["fastapi"])
         assert all(r["collection"] == "fastapi" for r in results)
@@ -144,7 +142,6 @@ class TestStorageSearch:
             ("test", "README.md", "# Test Repo\nContent here", "Test Repo"),
         )
         conn.commit()
-        conn.close()
 
         doc = tmp_storage.get("README.md")
         assert doc is not None
@@ -157,7 +154,6 @@ class TestStorageSearch:
             ("test", "doc.md", "How to use FastAPI dependency injection", "FastAPI DI Guide"),
         )
         conn.commit()
-        conn.close()
 
         results = tmp_storage.search("FastAPI dependency injection", strategy="hybrid")
         assert len(results) > 0
