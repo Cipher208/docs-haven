@@ -12,14 +12,6 @@ def get_storage() -> Storage:
     return Storage(Path.home() / ".docshaven")
 
 
-def check_error(result: dict, action: str = "Operation") -> bool:
-    """Check if result contains an error. Returns True if error found."""
-    if "error" in result:
-        print(f"Error ({action}): {result['error']}")
-        return True
-    return False
-
-
 def cmd_search(args: argparse.Namespace) -> None:
     """Search the knowledge base."""
     storage = get_storage()

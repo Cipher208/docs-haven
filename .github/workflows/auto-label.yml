@@ -11,7 +11,8 @@ permissions:
 jobs:
   label:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/labeler@v5
+      - uses: actions/labeler@85bd8d7e898bbdbd6eb23f63d8ac3c2c56c00f6f # v5.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}

@@ -189,6 +189,8 @@ class Storage:
 
     def _index_file(self, conn: sqlite3.Connection, f: Path, repo_dir: Path, name: str, description: str | None) -> int:
         """Index a single file into FTS5. Returns number of chunks inserted."""
+        if f.is_symlink():
+            return 0
         content = f.read_text(errors="ignore")
         rel_path = str(f.relative_to(repo_dir))
         title = f.stem.replace("-", " ").replace("_", " ")

@@ -135,7 +135,7 @@ class Syncer:
         conn.commit()
         return len(collections), sum(len(d) for d in collections.values())
 
-    def import_chunks(self, storage=None) -> dict:
+    def import_chunks(self, storage: "Storage | None" = None) -> dict:
         """Import all chunks not yet applied.
 
         Args:

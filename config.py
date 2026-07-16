@@ -27,7 +27,7 @@ class Config:
             "chunk_size": 1000,
         }
 
-    def save(self):
+    def save(self) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(json.dumps(self._data, indent=2))
 
