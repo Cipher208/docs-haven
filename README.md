@@ -202,17 +202,19 @@ Then ask your agent:
 
 </details>
 
-## MCP Tools
+## MCP Tools (18)
 
 | Tool | Description |
 |------|-------------|
-| `kb_search` | Search with BM25 ranking |
+| `kb_search` | Search with BM25 ranking + highlighted excerpts |
 | `kb_add_repo` | Clone and index a GitHub repo |
 | `kb_get` | Get document content |
+| `kb_update` | Update document content |
+| `kb_delete` | Delete document from knowledge base |
 | `kb_list_collections` | List all collections |
 | `kb_stats` | Database statistics |
 | `kb_uri_resolve` | URI to collection mapping |
-| `kb_uri_search` | Search within URI scope |
+| `kb_uri_search` | Search within URI scope (supports wildcards) |
 | `kb_uri_list` | List URIs in domain |
 | `kb_uri_domains` | All domains with counts |
 | `kb_sync_export` | Export compressed chunk |

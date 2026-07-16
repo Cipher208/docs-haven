@@ -1,12 +1,12 @@
 # MCP Tools Reference
 
-DocsHaven exposes 14 MCP tools for knowledge base operations.
+DocsHaven exposes 18 MCP tools for knowledge base operations.
 
 ## Search & Retrieval
 
 ### kb_search
 
-Search the knowledge base using BM25 full-text search.
+Search the knowledge base using BM25 full-text search with highlighted excerpts.
 
 ```json
 {
@@ -23,9 +23,33 @@ Search the knowledge base using BM25 full-text search.
 - `limit` (int, default 10): Max results
 - `min_score` (float, default 0): Minimum relevance score
 
+**Returns:** Results with `highlighted` field containing FTS5 snippet with `<b>` tags around matched terms.
+
 ### kb_get
 
 Get full content of a document.
+
+```json
+{
+  "file_path": "fastapi/README.md"
+}
+```
+
+### kb_update
+
+Update an existing document's content.
+
+```json
+{
+  "file_path": "fastapi/README.md",
+  "content": "Updated content here...",
+  "title": "Optional new title"
+}
+```
+
+### kb_delete
+
+Delete a document from the knowledge base.
 
 ```json
 {
@@ -77,7 +101,7 @@ Resolve a URI to its collection.
 
 ### kb_uri_search
 
-Search within a URI scope.
+Search within a URI scope. Supports wildcards: `core://fastapi/*`
 
 ```json
 {
