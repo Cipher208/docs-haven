@@ -280,7 +280,8 @@ class Storage:
                 placeholders = ",".join("?" * len(collections))
                 sql = f"""
                     SELECT d.file_path, d.content, d.collection, d.title,
-                           d.chunk_index, d.total_chunks, rank
+                           d.chunk_index, d.total_chunks, rank,
+                           snippet(documents_fts, 2, '<b>', '</b>', '...', 20) as highlighted
                     FROM documents_fts fts
                     JOIN documents d ON fts.rowid = d.id
                     WHERE documents_fts MATCH ?
@@ -292,7 +293,8 @@ class Storage:
             else:
                 sql = """
                     SELECT d.file_path, d.content, d.collection, d.title,
-                           d.chunk_index, d.total_chunks, rank
+                           d.chunk_index, d.total_chunks, rank,
+                           snippet(documents_fts, 2, '<b>', '</b>', '...', 20) as highlighted
                     FROM documents_fts fts
                     JOIN documents d ON fts.rowid = d.id
                     WHERE documents_fts MATCH ?
@@ -306,6 +308,7 @@ class Storage:
                 {
                     "path": f"{r['collection']}/{r['file_path']}",
                     "content": r["content"][:500],
+                    "highlighted": r["highlighted"] if r["highlighted"] else r["content"][:200],
                     "collection": r["collection"],
                     "title": r["title"],
                     "chunk": r["chunk_index"],

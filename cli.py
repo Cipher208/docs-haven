@@ -11,6 +11,14 @@ def get_storage() -> Storage:
     return Storage(Path.home() / ".docshaven")
 
 
+def check_error(result: dict, action: str = "Operation") -> bool:
+    """Check if result contains an error. Returns True if error found."""
+    if "error" in result:
+        print(f"Error ({action}): {result['error']}")
+        return True
+    return False
+
+
 def cmd_search(args):
     """Search the knowledge base."""
     storage = get_storage()
@@ -28,8 +36,7 @@ def cmd_add(args):
     """Add a repository."""
     storage = get_storage()
     result = storage.add_repo(args.url, description=args.description)
-    if "error" in result:
-        print(f"Error: {result['error']}")
+    if check_error(result, "Add repo"):
         sys.exit(1)
     print(f"Added {result['name']}: {result['files_indexed']} files, {result.get('chunks', 0)} chunks")
 

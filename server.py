@@ -3,6 +3,7 @@
 import logging
 import threading
 from pathlib import Path
+from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
@@ -96,6 +97,51 @@ async def kb_get(file_path: str) -> dict:
     """
     result = _get_storage().get(file_path)
     return result if result else {"error": "Document not found"}
+
+
+@mcp.tool()
+async def kb_update(file_path: str, content: str, title: Optional[str] = None) -> dict:
+    """Update an existing document's content.
+
+    Args:
+        file_path: Document path to update
+        content: New content for the document
+        title: Optional new title
+    """
+    storage = _get_storage()
+    conn = storage._get_conn()
+    try:
+        if title:
+            conn.execute(
+                "UPDATE documents SET content = ?, title = ?, updated_at = datetime('now') WHERE file_path = ?",
+                (content, title, file_path),
+            )
+        else:
+            conn.execute(
+                "UPDATE documents SET content = ?, updated_at = datetime('now') WHERE file_path = ?",
+                (content, file_path),
+            )
+        conn.commit()
+        return {"status": "updated", "file_path": file_path}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+async def kb_delete(file_path: str) -> dict:
+    """Delete a document from the knowledge base.
+
+    Args:
+        file_path: Document path to delete
+    """
+    storage = _get_storage()
+    conn = storage._get_conn()
+    try:
+        conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
+        conn.commit()
+        return {"status": "deleted", "file_path": file_path}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @mcp.tool()

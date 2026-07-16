@@ -90,9 +90,26 @@ class URIRouter:
         }
 
     def search_by_uri(self, uri_str: str, limit: int = 10) -> list[dict]:
-        """Search within a URI scope."""
+        """Search within a URI scope. Supports wildcards: core://fastapi/*"""
         uri = URI.parse(uri_str)
         collection = uri.to_collection()
+
+        # Check for wildcard pattern
+        if uri.path.endswith("/*"):
+            # Wildcard: search all collections in domain
+            prefix = f"{uri.domain}__"
+            collections = [
+                c["name"] for c in self.storage.list_collections()
+                if c.get("name", "").startswith(prefix)
+            ]
+            if not collections:
+                return []
+            return self.storage.search(
+                query=uri.path.rstrip("/*").split("/")[-1] if "/" in uri.path else "*",
+                collections=collections,
+                limit=limit,
+            )
+
         return self.storage.search(
             query=uri.path.split("/")[-1],
             collections=[collection],
