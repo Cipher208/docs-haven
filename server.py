@@ -220,4 +220,12 @@ async def kb_conflict_judge(
 
 
 if __name__ == "__main__":
-    mcp.run()
+    import sys
+    if "--http" in sys.argv:
+        # HTTP transport for remote agents
+        import uvicorn
+        port = int(sys.argv[sys.argv.index("--http") + 1]) if len(sys.argv) > sys.argv.index("--http") + 1 else 8000
+        print(f"Starting HTTP server on port {port}...")
+        uvicorn.run(mcp.app, host="0.0.0.0", port=port)
+    else:
+        mcp.run()

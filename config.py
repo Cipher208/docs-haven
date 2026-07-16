@@ -30,10 +30,10 @@ class Config:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(json.dumps(self._data, indent=2))
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default: Any = None) -> Any:
         return self._data.get(key, default)
 
-    def set(self, key: str, value):
+    def set(self, key: str, value: Any) -> None:
         self._data[key] = value
         self.save()
 

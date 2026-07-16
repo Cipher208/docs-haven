@@ -30,7 +30,7 @@ class ConflictResult:
     has_conflicts: bool
     judgment_required: bool
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {
             "new_title": self.new_title,
             "candidates": [vars(c) if hasattr(c, "__dataclass_fields__") else c for c in self.candidates],
@@ -45,10 +45,10 @@ class ConflictDetector:
     SCORE_THRESHOLD = 0.3  # Minimum score to consider a candidate
     MAX_CANDIDATES = 3
 
-    def __init__(self, storage=None):
+    def __init__(self, storage: Storage | None = None):
         self._storage = storage
 
-    def _get_storage(self):
+    def _get_storage(self) -> Storage:
         if self._storage is None:
             from pathlib import Path
 

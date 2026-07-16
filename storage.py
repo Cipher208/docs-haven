@@ -191,7 +191,6 @@ class Storage:
         repo_dir = self.repos_dir / name
 
         if not repo_dir.exists():
-            import subprocess
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", url, str(repo_dir)],
                 capture_output=True, text=True, timeout=120,

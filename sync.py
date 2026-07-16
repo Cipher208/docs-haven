@@ -35,7 +35,7 @@ class Manifest:
     version: int = 1
     chunks: list = field(default_factory=list)
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {"version": self.version, "chunks": [vars(c) for c in self.chunks]}
 
     @classmethod
@@ -54,7 +54,7 @@ class Syncer:
         self.manifest_path = sync_dir / MANIFEST_FILE
         self._ensure_dirs()
 
-    def _ensure_dirs(self):
+    def _ensure_dirs(self) -> None:
         self.sync_dir.mkdir(parents=True, exist_ok=True)
         self.chunks_dir.mkdir(parents=True, exist_ok=True)
 
@@ -185,7 +185,7 @@ class Syncer:
         with open(self.manifest_path) as f:
             return Manifest.from_dict(json.load(f))
 
-    def _write_manifest(self, manifest: Manifest):
+    def _write_manifest(self, manifest: Manifest) -> None:
         with open(self.manifest_path, "w") as f:
             json.dump(manifest.to_dict(), f, indent=2)
 
