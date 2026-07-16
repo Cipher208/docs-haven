@@ -252,6 +252,16 @@ class Storage:
 
         return Ok({"name": name, "status": "added", "files_indexed": indexed, "chunks": total_chunks})
 
+    def _merge_hybrid(self, results: list[dict], query: str, collections: list[str] | None, limit: int) -> list[dict]:
+        """Merge FTS5 results with LIKE fallback for hybrid search."""
+        like_results = self._search_like(query, collections, limit)
+        seen = {r["path"] for r in results}
+        for r in like_results:
+            if r["path"] not in seen:
+                results.append(r)
+                seen.add(r["path"])
+        return results
+
     def search(
         self,
         query: str,
@@ -268,12 +278,7 @@ class Storage:
         results = self._search_fts5(query, collections, limit * 2)
 
         if strategy == "hybrid" and len(results) < limit:
-            like_results = self._search_like(query, collections, limit)
-            seen = {r["path"] for r in results}
-            for r in like_results:
-                if r["path"] not in seen:
-                    results.append(r)
-                    seen.add(r["path"])
+            results = self._merge_hybrid(results, query, collections, limit)
 
         for r in results:
             base_score = r.get("score", 0)
