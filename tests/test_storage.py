@@ -46,7 +46,7 @@ class TestChunking:
 
     def test_empty_text(self):
         chunks = chunk_text("")
-        assert chunks == [""]
+        assert chunks == []
 
 
 # ── Auto Strategy ───────────────────────────────────────────────────────────

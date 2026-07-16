@@ -5,28 +5,29 @@ Features:
 - Auto strategy selection (fts/hybrid by query length)
 - Document chunking for better search precision
 - Type-aware result boosting
-- WAL mode + busy_timeout for concurrent access
+- WAL mode + performance PRAGMAs
+- Persistent connection with pooling
 """
 
 import json
+import logging
 import sqlite3
 import threading
-
-import json
-import sqlite3
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
 
 # ── Chunking ────────────────────────────────────────────────────────────────
 
-CHUNK_SIZE = 1000  # characters per chunk
-CHUNK_OVERLAP = 200  # overlap between chunks
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
 
 
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    """Split text into overlapping chunks for better search precision.
-
-    Pattern from mcp-ariel-memory: chunking.py
-    """
+    """Split text into overlapping chunks for better search precision."""
+    if not text:
+        return []
     if len(text) <= chunk_size:
         return [text]
 
@@ -36,13 +37,12 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
         end = start + chunk_size
         chunk = text[start:end]
 
-        # Try to break at sentence/paragraph boundary
         if end < len(text):
             last_period = chunk.rfind(". ")
             last_newline = chunk.rfind("\n\n")
             break_at = max(last_period, last_newline)
             if break_at > chunk_size // 2:
-                chunk = text[start : start + break_at + 1]
+                chunk = text[start:start + break_at + 1]
                 end = start + break_at + 1
 
         chunks.append(chunk.strip())
@@ -53,14 +53,8 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 
 # ── Auto Strategy ───────────────────────────────────────────────────────────
 
-
 def auto_strategy(query: str) -> str:
-    """Pick search strategy based on query complexity.
-
-    Pattern from mcp-ariel-memory: search.py auto_strategy()
-    - Short queries (<=2 words): FTS only
-    - Longer queries: hybrid (FTS + LIKE fallback)
-    """
+    """Pick search strategy based on query complexity."""
     if len(query.split()) <= 2:
         return "fts"
     return "hybrid"
@@ -68,7 +62,6 @@ def auto_strategy(query: str) -> str:
 
 # ── Type Boost ──────────────────────────────────────────────────────────────
 
-# Document type keywords for boost
 TYPE_KEYWORDS = {
     "api": ["api", "endpoint", "route", "handler", "request", "response"],
     "tutorial": ["tutorial", "guide", "howto", "how to", "step", "example"],
@@ -78,28 +71,22 @@ TYPE_KEYWORDS = {
 
 
 def type_boost(query: str, result: dict) -> float:
-    """Calculate type-aware boost for a search result.
-
-    Pattern from mcp-ariel-memory: search.py apply_type_boost()
-    """
+    """Calculate type-aware boost for a search result."""
     query_lower = query.lower()
     title_lower = result.get("title", "").lower()
     content_lower = result.get("content", "").lower()[:200]
 
     boost = 0.0
-    for doc_type, keywords in TYPE_KEYWORDS.items():
+    for _doc_type, keywords in TYPE_KEYWORDS.items():
         for kw in keywords:
             if kw in query_lower:
-                # Boost if result title/content matches the expected type
                 if any(k in title_lower or k in content_lower for k in keywords):
                     boost = max(boost, 0.15)
                     break
-
     return boost
 
 
 # ── Storage ─────────────────────────────────────────────────────────────────
-
 
 class Storage:
     """SQLite FTS5-backed document storage with smart search strategies."""
@@ -116,23 +103,26 @@ class Storage:
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get or create a persistent connection with WAL mode and performance PRAGMAs."""
-        if not hasattr(self, '_conn') or self._conn is None:
-            c = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            c.row_factory = sqlite3.Row
-            c.execute("PRAGMA journal_mode=WAL")
-            c.execute("PRAGMA busy_timeout=5000")
-            c.execute("PRAGMA synchronous=NORMAL")
-            c.execute("PRAGMA cache_size=-64000")
-            c.execute("PRAGMA temp_store=MEMORY")
-            c.execute("PRAGMA mmap_size=268435456")
-            self.__dict__['_conn'] = c
-        return self.__dict__['_conn']
+        if self._conn is None:
+            self._conn_lock.acquire()
+            try:
+                if self._conn is None:
+                    self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+                    self._conn.row_factory = sqlite3.Row
+                    self._conn.execute("PRAGMA journal_mode=WAL")
+                    self._conn.execute("PRAGMA busy_timeout=5000")
+                    self._conn.execute("PRAGMA synchronous=NORMAL")
+                    self._conn.execute("PRAGMA cache_size=-64000")
+                    self._conn.execute("PRAGMA temp_store=MEMORY")
+                    self._conn.execute("PRAGMA mmap_size=268435456")
+            finally:
+                self._conn_lock.release()
+        return self._conn
 
     def _init_db(self):
         """Initialize SQLite database with FTS5 tables and chunk support."""
         conn = self._get_conn()
 
-        # Documents table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,7 +140,6 @@ class Storage:
             )
         """)
 
-        # FTS5 virtual table for full-text search
         conn.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
                 title, content, collection,
@@ -182,33 +171,33 @@ class Storage:
             END
         """)
 
+        # Indexes for filtered queries
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_filepath ON documents(file_path)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_collection_filepath ON documents(collection, file_path)")
+
         conn.commit()
 
     def add_repo(
         self,
         url: str,
-        tags: list[str] | None = None,
-        description: str | None = None,
-        mask: str | None = None,
+        tags: Optional[list[str]] = None,
+        description: Optional[str] = None,
+        mask: Optional[str] = None,
     ) -> dict:
         """Clone repo and index documents into FTS5 with chunking."""
         name = url.rstrip("/").split("/")[-1].replace(".git", "")
         repo_dir = self.repos_dir / name
 
-        # Clone if not exists
         if not repo_dir.exists():
             import subprocess
-
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", url, str(repo_dir)],
-                capture_output=True,
-                text=True,
-                timeout=120,
+                capture_output=True, text=True, timeout=120,
             )
             if result.returncode != 0:
                 return {"error": f"Clone failed: {result.stderr}"}
 
-        # Index files with chunking
         file_mask = mask or "**/*.md"
         files = list(repo_dir.glob(file_mask))
         indexed = 0
@@ -222,7 +211,6 @@ class Storage:
                     rel_path = str(f.relative_to(repo_dir))
                     title = f.stem.replace("-", " ").replace("_", " ")
 
-                    # Chunk long documents
                     chunks = chunk_text(content)
                     for i, chunk in enumerate(chunks):
                         conn.execute(
@@ -233,11 +221,11 @@ class Storage:
                         )
                         total_chunks += 1
                     indexed += 1
-                except Exception:
+                except Exception as e:
+                    logger.debug("Skipping %s: %s", f, e)
                     continue
         conn.commit()
 
-        # Save metadata
         config = self._load_config()
         config["repos"][name] = {
             "url": url,
@@ -253,52 +241,37 @@ class Storage:
     def search(
         self,
         query: str,
-        collections: list[str] | None = None,
+        collections: Optional[list[str]] = None,
         limit: int = 10,
-        strategy: str | None = None,
+        strategy: Optional[str] = None,
     ) -> list[dict]:
-        """Search with auto strategy selection.
-
-        Pattern from mcp-ariel-memory: search_fts5() with LIKE fallback.
-
-        Strategies:
-        - fts: FTS5 BM25 only (fast, good for short queries)
-        - hybrid: FTS5 + LIKE fallback (better recall for complex queries)
-        - auto: pick by query length (default)
-        """
+        """Search with auto strategy selection."""
         if strategy is None:
             strategy = auto_strategy(query)
 
-        # Try FTS5 first
         results = self._search_fts5(query, collections, limit * 2)
 
-        # LIKE fallback for hybrid strategy or if FTS5 returned nothing
         if strategy == "hybrid" and len(results) < limit:
             like_results = self._search_like(query, collections, limit)
-            # Merge, avoiding duplicates
             seen = {r["path"] for r in results}
             for r in like_results:
                 if r["path"] not in seen:
                     results.append(r)
                     seen.add(r["path"])
 
-        # Apply type boost
         for r in results:
             boost = type_boost(query, r)
             if boost > 0:
                 r["score"] = min(1.0, r.get("score", 0) + boost)
                 r["boost"] = boost
 
-        # Sort by score and limit
         results.sort(key=lambda x: -x.get("score", 0))
         return results[:limit]
 
-    def _search_fts5(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
+    def _search_fts5(self, query: str, collections: Optional[list[str]], limit: int) -> list[dict]:
         """FTS5 search with BM25 ranking."""
         conn = self._get_conn()
         try:
-            # Sanitize FTS5 query: wrap in double quotes for literal matching
-            # Prevents AND/OR/NOT/* operators from being interpreted
             fts_query = f'"{query.replace(chr(34), chr(34)+chr(34))}"'
 
             if collections:
@@ -340,10 +313,11 @@ class Storage:
                 }
                 for r in rows
             ]
-        except Exception:
+        except Exception as e:
+            logger.debug("FTS5 search failed: %s", e)
             return []
 
-    def _search_like(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
+    def _search_like(self, query: str, collections: Optional[list[str]], limit: int) -> list[dict]:
         """LIKE fallback for when FTS5 fails or for hybrid search."""
         conn = self._get_conn()
         try:
@@ -384,10 +358,11 @@ class Storage:
                 }
                 for r in rows
             ]
-        except Exception:
+        except Exception as e:
+            logger.debug("LIKE search failed: %s", e)
             return []
 
-    def get(self, file_path: str, chunk: int | None = None) -> dict | None:
+    def get(self, file_path: str, chunk: Optional[int] = None) -> Optional[dict]:
         """Get a document by path, optionally a specific chunk."""
         conn = self._get_conn()
         try:
@@ -397,14 +372,12 @@ class Storage:
                     (file_path, chunk),
                 ).fetchone()
             else:
-                # Get first chunk or all chunks merged
                 rows = conn.execute(
                     "SELECT * FROM documents WHERE file_path = ? ORDER BY chunk_index",
                     (file_path,),
                 ).fetchall()
                 if not rows:
                     return None
-                # Merge chunks
                 content = "\n".join(r["content"] for r in rows)
                 return {
                     "file_path": rows[0]["file_path"],
@@ -416,7 +389,8 @@ class Storage:
             if row:
                 return dict(row)
             return None
-        except Exception:
+        except Exception as e:
+            logger.debug("Get failed: %s", e)
             return None
 
     def list_collections(self) -> list[dict]:
@@ -438,7 +412,8 @@ class Storage:
                 }
                 for r in rows
             ]
-        except Exception:
+        except Exception as e:
+            logger.debug("List collections failed: %s", e)
             return []
 
     def stats(self) -> dict:
@@ -457,7 +432,8 @@ class Storage:
                 "db_path": str(self.db_path),
                 "db_size_kb": round(self.db_path.stat().st_size / 1024) if self.db_path.exists() else 0,
             }
-        except Exception:
+        except Exception as e:
+            logger.debug("Stats failed: %s", e)
             return {"total_chunks": 0, "total_documents": 0, "collections": 0, "repos": 0, "db_path": "", "db_size_kb": 0}
 
     def _load_config(self) -> dict:
@@ -466,4 +442,12 @@ class Storage:
         return {"repos": {}}
 
     def _save_config(self, config: dict):
-        self.config_path.write_text(json.dumps(config, indent=2))
+        """Atomic write via temp file + rename."""
+        tmp_path = self.config_path.with_suffix(".tmp")
+        try:
+            tmp_path.write_text(json.dumps(config, indent=2))
+            tmp_path.replace(self.config_path)
+        except Exception:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
