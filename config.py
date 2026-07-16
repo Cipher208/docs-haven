@@ -29,6 +29,7 @@ class Config:
         }
 
     def save(self):
+        self.config_dir.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(json.dumps(self._data, indent=2))
 
     def get(self, key: str, default=None):
