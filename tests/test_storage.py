@@ -136,8 +136,9 @@ class TestStorageSearch:
         conn.commit()
 
         results = tmp_storage.search("FastAPI")
-        assert len(results) > 0
-        assert any("fastapi" in r["title"].lower() for r in results)
+        assert len(results) >= 1
+        assert results[0]["title"] == "FastAPI Guide"
+        assert results[0]["score"] > 0
 
     def test_search_by_collection(self, tmp_storage):
         conn = tmp_storage._get_conn()
@@ -175,7 +176,8 @@ class TestStorageSearch:
         conn.commit()
 
         results = tmp_storage.search("FastAPI dependency injection", strategy="hybrid")
-        assert len(results) > 0
+        assert len(results) >= 1
+        assert results[0]["score"] > 0
 
     def test_search_explain(self, tmp_storage):
         conn = tmp_storage._get_conn()

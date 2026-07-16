@@ -48,7 +48,9 @@ class ConflictResult:
 class ConflictDetector:
     """Detect potential conflicts when adding new documents."""
 
-    SCORE_THRESHOLD = 0.3  # Minimum score to consider a candidate
+    # 0.3 catches moderately similar docs without too many false positives
+    SCORE_THRESHOLD = 0.3
+    # 3 candidates keeps review manageable — more is noise
     MAX_CANDIDATES = 3
 
     def __init__(self, storage: Storage | None = None):
@@ -56,11 +58,9 @@ class ConflictDetector:
 
     def _get_storage(self) -> Storage:
         if self._storage is None:
-            from pathlib import Path
-
             from storage import Storage
 
-            self._storage = Storage(Path.home() / ".docshaven")
+            self._storage = Storage.default()
         return self._storage
 
     def detect(self, title: str, content: str, collections: list[str] | None = None) -> ConflictResult:

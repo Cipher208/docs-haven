@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 
 # ── Chunking ────────────────────────────────────────────────────────────────
 
+# ADR-004: 1000 chars balances search precision vs context retention
 CHUNK_SIZE = 1000
+# 20% overlap prevents losing context at chunk boundaries
 CHUNK_OVERLAP = 200
 
 
@@ -58,6 +60,7 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 # ── Auto Strategy ───────────────────────────────────────────────────────────
 
 
+# ADR-005: ≤2 words = fast FTS5; longer queries benefit from LIKE fallback
 def auto_strategy(query: str) -> str:
     """Pick search strategy based on query complexity."""
     if len(query.split()) <= 2:
@@ -82,7 +85,7 @@ def type_boost(query: str, result: dict) -> float:
     content_lower = result.get("content", "").lower()[:200]
 
     boost = 0.0
-    for _doc_type, keywords in TYPE_KEYWORDS.items():
+    for keywords in TYPE_KEYWORDS.values():
         for kw in keywords:
             if kw in query_lower:
                 if any(k in title_lower or k in content_lower for k in keywords):
@@ -96,6 +99,11 @@ def type_boost(query: str, result: dict) -> float:
 
 class Storage:
     """SQLite FTS5-backed document storage with smart search strategies."""
+
+    @classmethod
+    def default(cls) -> "Storage":
+        """Create Storage with default ~/.docshaven path."""
+        return cls(Path.home() / ".docshaven")
 
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
@@ -418,6 +426,37 @@ class Storage:
         except sqlite3.Error as e:
             logger.debug("Get failed: %s", e)
             return None
+
+    def update_document(self, file_path: str, content: str, title: str | None = None) -> bool:
+        """Update a document's content. Returns True on success."""
+        conn = self._get_conn()
+        try:
+            if title:
+                conn.execute(
+                    "UPDATE documents SET content = ?, title = ?, updated_at = datetime('now') WHERE file_path = ?",
+                    (content, title, file_path),
+                )
+            else:
+                conn.execute(
+                    "UPDATE documents SET content = ?, updated_at = datetime('now') WHERE file_path = ?",
+                    (content, file_path),
+                )
+            conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.debug("Update failed: %s", e)
+            return False
+
+    def delete_document(self, file_path: str) -> bool:
+        """Delete a document by path. Returns True on success."""
+        conn = self._get_conn()
+        try:
+            conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
+            conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logger.debug("Delete failed: %s", e)
+            return False
 
     def list_collections(self) -> list[dict]:
         """List all collections with document counts."""

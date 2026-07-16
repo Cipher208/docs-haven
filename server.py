@@ -27,7 +27,7 @@ def _get_storage() -> Storage:
     if _storage is None:
         with _storage_lock:
             if _storage is None:
-                _storage = Storage(Path.home() / ".docshaven")
+                _storage = Storage.default()
     return _storage
 
 
@@ -129,7 +129,8 @@ async def kb_update(file_path: str, content: str, title: str | None = None) -> d
             )
         conn.commit()
         return {"status": "updated", "file_path": file_path}
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        logger.error("kb_update failed: %s", e)
         return {"error": "Update failed"}
 
 
@@ -146,7 +147,8 @@ async def kb_delete(file_path: str) -> dict:
         conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
         conn.commit()
         return {"status": "deleted", "file_path": file_path}
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        logger.error("kb_delete failed: %s", e)
         return {"error": "Delete failed"}
 
 

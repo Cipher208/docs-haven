@@ -9,7 +9,7 @@ from uri import URIRouter
 
 
 def get_storage() -> Storage:
-    return Storage(Path.home() / ".docshaven")
+    return Storage.default()
 
 
 def cmd_search(args: argparse.Namespace) -> None:

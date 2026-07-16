@@ -33,10 +33,11 @@ class Manifest:
     """Index of all synced chunks."""
 
     version: int = 1
-    chunks: list = field(default_factory=list)
+    chunks: list[ChunkEntry] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return {"version": self.version, "chunks": [vars(c) for c in self.chunks]}
+        from dataclasses import asdict
+        return {"version": self.version, "chunks": [asdict(c) for c in self.chunks]}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Manifest":
