@@ -107,7 +107,7 @@ class Storage:
         self._conn_lock = threading.Lock()
         self._init_db()
 
-    def close(self):
+    def close(self) -> None:
         """Close the database connection."""
         if self._conn is not None:
             self._conn.close()

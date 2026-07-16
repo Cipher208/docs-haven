@@ -126,8 +126,8 @@ async def kb_update(file_path: str, content: str, title: str | None = None) -> d
             )
         conn.commit()
         return {"status": "updated", "file_path": file_path}
-    except sqlite3.Error as e:
-        return {"error": str(e)}
+    except sqlite3.Error:
+        return {"error": "Update failed"}
 
 
 @mcp.tool()
@@ -143,8 +143,8 @@ async def kb_delete(file_path: str) -> dict:
         conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
         conn.commit()
         return {"status": "deleted", "file_path": file_path}
-    except sqlite3.Error as e:
-        return {"error": str(e)}
+    except sqlite3.Error:
+        return {"error": "Delete failed"}
 
 
 @mcp.tool()
@@ -271,12 +271,13 @@ async def kb_conflict_judge(
 if __name__ == "__main__":
     import sys
 
-    if "--http" in sys.argv:
-        # HTTP transport for remote agents
+    _HTTP_FLAG = "--http"
+    if _HTTP_FLAG in sys.argv:
         import uvicorn
 
-        port = int(sys.argv[sys.argv.index("--http") + 1]) if len(sys.argv) > sys.argv.index("--http") + 1 else 8000
-        print(f"Starting HTTP server on port {port}...")
+        idx = sys.argv.index(_HTTP_FLAG)
+        port = int(sys.argv[idx + 1]) if len(sys.argv) > idx + 1 else 8000
+        logger.info("Starting HTTP server on port %d...", port)
         uvicorn.run(mcp.streamable_http_app(), host="0.0.0.0", port=port)
     else:
         mcp.run()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, NoReturn, TypeVar
 
 T = TypeVar("T")
 
@@ -37,7 +37,7 @@ class Err:
     def is_err(self) -> bool:
         return True
 
-    def unwrap(self):
+    def unwrap(self) -> NoReturn:
         raise RuntimeError(self.error)
 
 
