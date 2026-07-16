@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 
-
 DEFAULT_CONFIG_DIR = Path.home() / ".docshaven"
 CONFIG_FILE = "config.json"
 
