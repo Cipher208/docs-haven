@@ -29,7 +29,14 @@ class Config:
 
     def save(self) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.config_path.write_text(json.dumps(self._data, indent=2))
+        tmp_path = self.config_path.with_suffix(".tmp")
+        try:
+            tmp_path.write_text(json.dumps(self._data, indent=2))
+            tmp_path.replace(self.config_path)
+        except OSError:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._data.get(key, default)

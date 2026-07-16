@@ -213,6 +213,9 @@ class Storage:
         mask: str | None = None,
     ) -> Ok[dict] | Err:
         """Clone repo and index documents into FTS5 with chunking."""
+        if not url.startswith(("https://", "http://", "git@")):
+            return Err(f"Invalid URL scheme: {url}")
+
         name = url.rstrip("/").split("/")[-1].replace(".git", "")
         repo_dir = self.repos_dir / name
 
@@ -315,7 +318,9 @@ class Storage:
         """FTS5 search with BM25 ranking."""
         conn = self._get_conn()
         try:
-            fts_query = f'"{query.replace(chr(34), chr(34) + chr(34))}"'
+            # Escape each token and wrap in quotes to prevent FTS5 operator injection
+            tokens = query.split()
+            fts_query = " ".join(f'"{t.replace(chr(34), chr(34) + chr(34))}"' for t in tokens) if tokens else '""'
 
             if collections:
                 placeholders = ",".join("?" * len(collections))

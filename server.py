@@ -281,6 +281,6 @@ if __name__ == "__main__":
         idx = sys.argv.index(_HTTP_FLAG)
         port = int(sys.argv[idx + 1]) if len(sys.argv) > idx + 1 else 8000
         logger.info("Starting HTTP server on port %d...", port)
-        uvicorn.run(mcp.streamable_http_app(), host="0.0.0.0", port=port)
+        uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=port)
     else:
         mcp.run()
