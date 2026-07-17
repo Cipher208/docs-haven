@@ -99,7 +99,7 @@ class ConflictDetector:
 
         # Filter by score threshold and exclude exact matches
         candidates = []
-        for r in result.value:
+        for r in result.value:  # type: ignore[union-attr]
             score = r.get("score", 0)
             if score >= self.SCORE_THRESHOLD:
                 candidates.append(

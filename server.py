@@ -1,7 +1,6 @@
 """DocsHaven — local knowledge base for AI agents with SQLite FTS5 search."""
 
 import logging
-import sqlite3
 import threading
 from pathlib import Path
 
@@ -57,7 +56,7 @@ async def kb_search(
     min_score: float = 0.0,
     *,
     explain: bool = False,
-) -> list[dict]:
+) -> list[dict] | dict:
     """Search knowledge base using BM25 full-text search.
 
     Args:
@@ -69,9 +68,9 @@ async def kb_search(
     """
     storage = _get_storage()
     result = storage.search(query, collections, limit, explain=explain, min_score=min_score)
-    if result.is_err():
-        return {"error": result.error}
-    return result.value
+    if result.is_err():  # type: ignore[union-attr]
+        return {"error": result.error}  # type: ignore[union-attr]
+    return result.value  # type: ignore[union-attr]
 
 
 @mcp.tool()
@@ -96,9 +95,9 @@ async def kb_add_repo(
     # Run blocking git clone in executor to avoid blocking event loop
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, storage.add_repo, url, tags, description, mask)
-    if result.is_err():
-        return {"error": result.error}
-    return result.value
+    if result.is_err():  # type: ignore[union-attr]
+        return {"error": result.error}  # type: ignore[union-attr]
+    return result.value  # type: ignore[union-attr]
 
 
 @mcp.tool()
@@ -112,9 +111,9 @@ async def kb_get(file_path: str) -> dict:
     if ".." in file_path or file_path.startswith("/"):
         return {"error": "Invalid file path"}
     result = _get_storage().get(file_path)
-    if result.is_err():
-        return {"error": result.error}
-    return result.value
+    if result.is_err():  # type: ignore[union-attr]
+        return {"error": result.error}  # type: ignore[union-attr]
+    return result.value  # type: ignore[union-attr]
 
 
 @mcp.tool()
@@ -128,9 +127,9 @@ async def kb_update(file_path: str, content: str, title: str | None = None) -> d
     """
     storage = _get_storage()
     result = storage.update_document(file_path, content, title)
-    if result.is_err():
-        return {"error": result.error}
-    return result.value
+    if result.is_err():  # type: ignore[union-attr]
+        return {"error": result.error}  # type: ignore[union-attr]
+    return result.value  # type: ignore[union-attr]
 
 
 @mcp.tool()
@@ -143,27 +142,27 @@ async def kb_delete(file_path: str, collection: str | None = None) -> dict:
     """
     storage = _get_storage()
     result = storage.delete_document(file_path)
-    if result.is_err():
-        return {"error": result.error}
-    return result.value
+    if result.is_err():  # type: ignore[union-attr]
+        return {"error": result.error}  # type: ignore[union-attr]
+    return result.value  # type: ignore[union-attr]
 
 
 @mcp.tool()
 async def kb_list_collections() -> list[dict]:
     """List all knowledge base collections with document counts."""
     result = _get_storage().list_collections()
-    if result.is_err():
-        return [{"error": result.error}]
-    return result.value
+    if result.is_err():  # type: ignore[union-attr]
+        return [{"error": result.error}]  # type: ignore[union-attr]
+    return result.value  # type: ignore[union-attr]
 
 
 @mcp.tool()
 async def kb_stats() -> dict:
     """Get knowledge base statistics."""
     result = _get_storage().stats()
-    if result.is_err():
-        return {"error": result.error}
-    return result.value
+    if result.is_err():  # type: ignore[union-attr]
+        return {"error": result.error}  # type: ignore[union-attr]
+    return result.value  # type: ignore[union-attr]
 
 
 # ── URI Routing Tools ──────────────────────────────────────────────────────
@@ -218,8 +217,10 @@ async def kb_sync_export(created_by: str | None = None) -> dict:
     syncer = _get_syncer()
     storage = _get_storage()
 
-    collections = storage.list_collections()
-    collections_data = {c["name"]: [c] for c in collections if c.get("name")}
+    result = storage.list_collections()
+    if result.is_err():  # type: ignore[union-attr]
+        return {"error": result.error}  # type: ignore[union-attr]
+    collections_data = {c["name"]: [c] for c in result.value if c.get("name")}  # type: ignore[union-attr]
 
     return syncer.export(collections_data, created_by or get_username())
 

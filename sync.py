@@ -11,6 +11,10 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from storage import Storage
 
 CHUNKS_DIR = "chunks"
 MANIFEST_FILE = "manifest.json"

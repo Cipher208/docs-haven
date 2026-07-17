@@ -500,7 +500,7 @@ class Storage:
             logger.debug("Delete failed: %s", e)
             return Err(str(e))
 
-    def list_collections(self) -> list[dict]:
+    def list_collections(self) -> Ok[list[dict]] | Err:
         """List all collections with document counts."""
         conn = self._get_conn()
         try:

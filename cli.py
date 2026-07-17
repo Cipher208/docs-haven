@@ -2,7 +2,6 @@
 
 import argparse
 import sys
-from pathlib import Path
 
 from storage import Storage
 from uri import URIRouter
@@ -101,6 +100,7 @@ def cmd_delete(args: argparse.Namespace) -> None:
 def cmd_serve(args: argparse.Namespace) -> None:
     """Start MCP server."""
     import uvicorn
+
     from server import mcp
     uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=args.port)
 
