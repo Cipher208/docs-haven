@@ -239,3 +239,33 @@ class TestStorageSearch:
         stale = tmp_storage.check_stale("test")
         assert len(stale) == 1
         assert stale[0]["reason"] == "symlink_skipped"
+
+    def test_search_empty_query(self, tmp_storage):
+        results = tmp_storage.search("")
+        assert results == []
+
+    def test_search_sql_injection(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "Normal content", "Normal"),
+        )
+        conn.commit()
+        results = tmp_storage.search('"; DROP TABLE documents; --')
+        assert isinstance(results, list)
+
+    def test_search_limit_zero(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "Content", "Title"),
+        )
+        conn.commit()
+        results = tmp_storage.search("Content", limit=0)
+        assert results == []
+
+    def test_auto_strategy_boundary(self):
+        from storage import auto_strategy
+        assert auto_strategy("a") == "fts"
+        assert auto_strategy("a b") == "fts"
+        assert auto_strategy("a b c") == "hybrid"

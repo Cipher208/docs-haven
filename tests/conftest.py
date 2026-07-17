@@ -15,3 +15,13 @@ def tmp_storage():
         storage = Storage(Path(d))
         yield storage
         storage.close()
+
+
+def insert_doc(storage: Storage, collection: str, path: str, content: str, title: str) -> None:
+    """Insert a test document into storage."""
+    conn = storage._get_conn()
+    conn.execute(
+        "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+        (collection, path, content, title),
+    )
+    conn.commit()

@@ -111,6 +111,9 @@ class Storage:
         self.config_path = data_dir / "config.json"
         self.db_path = data_dir / "docshaven.db"
         self.repos_dir.mkdir(parents=True, exist_ok=True)
+        # ADR-007: Single persistent connection for MCP server concurrency.
+        # check_same_thread=False allows cross-thread access from async handlers.
+        # _conn_lock protects _get_conn from double-creation under concurrent requests.
         self._conn: sqlite3.Connection | None = None
         self._conn_lock = threading.Lock()
         self._init_db()
@@ -124,15 +127,17 @@ class Storage:
     def _get_conn(self) -> sqlite3.Connection:
         """Get or create a persistent connection with WAL mode and performance PRAGMAs."""
         if self._conn is None:
-            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA cache_size=-64000")
-            conn.execute("PRAGMA temp_store=MEMORY")
-            conn.execute("PRAGMA mmap_size=268435456")
-            self._conn = conn
+            with self._conn_lock:
+                if self._conn is None:
+                    conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+                    conn.row_factory = sqlite3.Row
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute("PRAGMA busy_timeout=5000")
+                    conn.execute("PRAGMA synchronous=NORMAL")
+                    conn.execute("PRAGMA cache_size=-64000")
+                    conn.execute("PRAGMA temp_store=MEMORY")
+                    conn.execute("PRAGMA mmap_size=268435456")
+                    self._conn = conn
         return self._conn
 
     def _init_db(self):
@@ -238,6 +243,8 @@ class Storage:
                 return Err(f"Clone failed: {result.stderr}")
 
         file_mask = mask or "**/*.md"
+        if ".." in file_mask:
+            return Err("File mask must not contain '..' (path traversal)")
         files = [f for f in repo_dir.glob(file_mask) if f.is_file() and f.stat().st_size < 500_000]
         indexed = 0
         total_chunks = 0

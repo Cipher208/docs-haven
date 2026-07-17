@@ -33,8 +33,14 @@ class ConflictResult:
 
     new_title: str
     candidates: list
-    has_conflicts: bool
-    judgment_required: bool
+
+    @property
+    def has_conflicts(self) -> bool:
+        return len(self.candidates) > 0
+
+    @property
+    def judgment_required(self) -> bool:
+        return self.has_conflicts
 
     def to_dict(self) -> dict:
         return {
@@ -81,8 +87,6 @@ class ConflictDetector:
         return ConflictResult(
             new_title=title,
             candidates=candidates,
-            has_conflicts=len(candidates) > 0,
-            judgment_required=len(candidates) > 0,
         )
 
     def _find_similar(self, title: str, collections: list[str] | None = None) -> list[dict]:

@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-DocsHaven exposes 18 MCP tools for knowledge base operations.
+DocsHaven exposes 16 MCP tools for knowledge base operations.
 
 ## Search & Retrieval
 
@@ -13,7 +13,8 @@ Search the knowledge base using BM25 full-text search with highlighted excerpts.
   "query": "fastapi dependency injection",
   "collections": ["fastapi"],
   "limit": 10,
-  "min_score": 0.3
+  "min_score": 0.3,
+  "explain": true
 }
 ```
 
@@ -22,8 +23,9 @@ Search the knowledge base using BM25 full-text search with highlighted excerpts.
 - `collections` (list, optional): Filter to specific collections
 - `limit` (int, default 10): Max results
 - `min_score` (float, default 0): Minimum relevance score
+- `explain` (bool, default false): Include scoring breakdown
 
-**Returns:** Results with `highlighted` field containing FTS5 snippet with `<b>` tags around matched terms.
+**Returns:** Results with `highlighted` field containing FTS5 snippet with `<b>` tags around matched terms. When `explain=true`, includes `explain` object with `base_score`, `type_boost`, `final_score`, `source`.
 
 ### kb_get
 
@@ -53,9 +55,14 @@ Delete a document from the knowledge base.
 
 ```json
 {
-  "file_path": "fastapi/README.md"
+  "file_path": "fastapi/README.md",
+  "collection": "fastapi"
 }
 ```
+
+**Parameters:**
+- `file_path` (string, required): Document path to delete
+- `collection` (string, optional): Collection scope (prevents cross-collection deletes)
 
 ### kb_list_collections
 
@@ -86,6 +93,12 @@ Clone and index a GitHub repository.
   "mask": "**/*.md"
 }
 ```
+
+**Parameters:**
+- `url` (string, required): GitHub repo URL (must start with https://, http://, or git@)
+- `tags` (list, optional): Optional tags
+- `description` (string, optional): Description
+- `mask` (string, default "**/*.md"): File glob pattern
 
 ## URI Routing
 
@@ -181,3 +194,10 @@ Record a judgment on a conflict candidate.
   "judgment": "supersedes"
 }
 ```
+
+**Parameters:**
+- `new_id` (string, required): ID of the new document
+- `candidate_id` (string, required): ID of the conflicting document
+- `judgment` (string, required): One of "supersedes", "conflicts_with", "unrelated"
+
+**Note:** Judgments are ephemeral (not persisted to database).

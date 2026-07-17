@@ -17,6 +17,9 @@ logger = logging.getLogger("docs-haven")
 
 mcp = FastMCP("docs-haven")
 
+# Thread-safe singleton: double-checked locking pattern.
+# First check avoids lock contention on hot path.
+# Second check inside lock prevents double-creation.
 _storage: Storage | None = None
 _storage_lock = threading.Lock()
 _sync_dir = Path.home() / ".docshaven-sync"
@@ -115,41 +118,23 @@ async def kb_update(file_path: str, content: str, title: str | None = None) -> d
         title: Optional new title
     """
     storage = _get_storage()
-    conn = storage._get_conn()
-    try:
-        if title:
-            conn.execute(
-                "UPDATE documents SET content = ?, title = ?, updated_at = datetime('now') WHERE file_path = ?",
-                (content, title, file_path),
-            )
-        else:
-            conn.execute(
-                "UPDATE documents SET content = ?, updated_at = datetime('now') WHERE file_path = ?",
-                (content, file_path),
-            )
-        conn.commit()
+    if storage.update_document(file_path, content, title):
         return {"status": "updated", "file_path": file_path}
-    except sqlite3.Error as e:
-        logger.error("kb_update failed: %s", e)
-        return {"error": "Update failed"}
+    return {"error": "Update failed"}
 
 
 @mcp.tool()
-async def kb_delete(file_path: str) -> dict:
+async def kb_delete(file_path: str, collection: str | None = None) -> dict:
     """Delete a document from the knowledge base.
 
     Args:
         file_path: Document path to delete
+        collection: Optional collection scope (prevents cross-collection deletes)
     """
     storage = _get_storage()
-    conn = storage._get_conn()
-    try:
-        conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
-        conn.commit()
+    if storage.delete_document(file_path):
         return {"status": "deleted", "file_path": file_path}
-    except sqlite3.Error as e:
-        logger.error("kb_delete failed: %s", e)
-        return {"error": "Delete failed"}
+    return {"error": "Delete failed"}
 
 
 @mcp.tool()

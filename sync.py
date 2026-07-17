@@ -170,6 +170,11 @@ class Syncer:
                 result["chunks_skipped"] += 1
                 continue
 
+            # Guard against oversized chunks (max 10MB uncompressed)
+            if chunk_path.stat().st_size > 10 * 1024 * 1024:
+                result["chunks_skipped"] += 1
+                continue
+
             with gzip.open(chunk_path, "rb") as f:
                 chunk_data = json.loads(f.read())
 
