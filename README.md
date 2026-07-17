@@ -276,14 +276,16 @@ No. DocsHaven is fully local. The only network operation is cloning GitHub repos
 
 ```
 docs-haven/
-├── server.py        # MCP server (14 tools)
-├── storage.py       # SQLite FTS5 backend
+├── server.py        # MCP server (16 tools)
+├── storage.py       # SQLite FTS5 backend + Result types
 ├── uri.py           # URI routing
 ├── sync.py          # Git sync (compressed chunks)
 ├── conflicts.py     # Conflict detection
+├── result.py        # Ok/Err Result type
+├── cli.py           # CLI interface
 ├── benchmark.py     # Performance benchmarks
-├── tests/           # pytest test suite (39 tests)
-├── docs/            # Documentation
+├── tests/           # pytest test suite (78 tests)
+├── docs/            # Documentation + ADRs
 └── pyproject.toml   # Package config
 ```
 
