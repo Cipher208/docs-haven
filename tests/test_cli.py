@@ -19,12 +19,14 @@ def test_cli_search(monkeypatch):
 def test_cli_stats(monkeypatch):
     """Test stats command."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.stats.return_value = Ok({
-            "collections": 2,
-            "total_documents": 100,
-            "total_chunks": 500,
-            "db_size_kb": 1024,
-        })
+        mock.return_value.stats.return_value = Ok(
+            {
+                "collections": 2,
+                "total_documents": 100,
+                "total_chunks": 500,
+                "db_size_kb": 1024,
+            }
+        )
         with patch("sys.argv", ["cli", "stats"]):
             main()
 

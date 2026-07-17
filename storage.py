@@ -259,6 +259,7 @@ class Storage:
                 # Clean up partial clone
                 if repo_dir.exists():
                     import shutil
+
                     shutil.rmtree(repo_dir, ignore_errors=True)
                 return Err(f"Clone failed: {result.stderr}")
 
@@ -458,13 +459,15 @@ class Storage:
                 if not rows:
                     return Err(f"Document not found: {file_path}")
                 content = "\n".join(r["content"] for r in rows)
-                return Ok({
-                    "file_path": rows[0]["file_path"],
-                    "content": content,
-                    "collection": rows[0]["collection"],
-                    "title": rows[0]["title"],
-                    "chunks": len(rows),
-                })
+                return Ok(
+                    {
+                        "file_path": rows[0]["file_path"],
+                        "content": content,
+                        "collection": rows[0]["collection"],
+                        "title": rows[0]["title"],
+                        "chunks": len(rows),
+                    }
+                )
         except sqlite3.Error as e:
             logger.debug("Get failed: %s", e)
             return Err(str(e))
@@ -511,16 +514,21 @@ class Storage:
                    FROM documents GROUP BY collection"""
             ).fetchall()
             from uri import VALID_DOMAINS
-            return Ok([
-                {
-                    "name": r["collection"],
-                    "count": r["docs"],
-                    "chunks": r["chunks"],
-                    "contexts": r["contexts"].split("|") if r["contexts"] else [],
-                    "domain": r["collection"].split("__")[0] if "__" in r["collection"] and r["collection"].split("__")[0] in VALID_DOMAINS else None,
-                }
-                for r in rows
-            ])
+
+            return Ok(
+                [
+                    {
+                        "name": r["collection"],
+                        "count": r["docs"],
+                        "chunks": r["chunks"],
+                        "contexts": r["contexts"].split("|") if r["contexts"] else [],
+                        "domain": r["collection"].split("__")[0]
+                        if "__" in r["collection"] and r["collection"].split("__")[0] in VALID_DOMAINS
+                        else None,
+                    }
+                    for r in rows
+                ]
+            )
         except sqlite3.Error as e:
             logger.debug("List collections failed: %s", e)
             return Err(str(e))
@@ -533,14 +541,16 @@ class Storage:
             docs = conn.execute("SELECT COUNT(DISTINCT file_path) FROM documents").fetchone()[0]
             collections = conn.execute("SELECT COUNT(DISTINCT collection) FROM documents").fetchone()[0]
             config = self._load_config()
-            return Ok({
-                "total_chunks": total,
-                "total_documents": docs,
-                "collections": collections,
-                "repos": len(config.get("repos", {})),
-                "db_path": str(self.db_path),
-                "db_size_kb": round(self.db_path.stat().st_size / 1024) if self.db_path.exists() else 0,
-            })
+            return Ok(
+                {
+                    "total_chunks": total,
+                    "total_documents": docs,
+                    "collections": collections,
+                    "repos": len(config.get("repos", {})),
+                    "db_path": str(self.db_path),
+                    "db_size_kb": round(self.db_path.stat().st_size / 1024) if self.db_path.exists() else 0,
+                }
+            )
         except (sqlite3.Error, OSError) as e:
             logger.debug("Stats failed: %s", e)
             return Err(str(e))

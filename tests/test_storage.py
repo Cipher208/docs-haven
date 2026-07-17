@@ -290,6 +290,7 @@ class TestStorageSearch:
 
     def test_auto_strategy_boundary(self):
         from storage import auto_strategy
+
         assert auto_strategy("a") == "fts"
         assert auto_strategy("a b") == "fts"
         assert auto_strategy("a b c") == "hybrid"

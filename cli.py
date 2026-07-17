@@ -24,7 +24,7 @@ def cmd_search(args: argparse.Namespace) -> None:
         return
     for r in results:
         print(f"{r['score']:.2f} [{r['collection']}] {r['title']}")
-        content = r.get('content', '')
+        content = r.get("content", "")
         print(f"  {content[:100]}...")
         if "explain" in r:
             e = r["explain"]
@@ -102,6 +102,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
     from server import mcp
+
     uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=args.port)
 
 

@@ -91,6 +91,7 @@ async def kb_add_repo(
         mask: File pattern (default: **/*.md). Use **/*.rst for Sphinx, **/*.py for Python.
     """
     import asyncio
+
     storage = _get_storage()
     # Run blocking git clone in executor to avoid blocking event loop
     loop = asyncio.get_event_loop()

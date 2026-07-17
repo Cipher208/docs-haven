@@ -41,6 +41,7 @@ class Manifest:
 
     def to_dict(self) -> dict:
         from dataclasses import asdict
+
         return {"version": self.version, "chunks": [asdict(c) for c in self.chunks]}
 
     @classmethod
