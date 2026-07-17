@@ -299,7 +299,7 @@ class Storage:
         strategy: str | None = None,
         *,
         explain: bool = False,
-    ) -> list[dict]:
+    ) -> Ok[list[dict]] | Err:
         """Search with auto strategy selection."""
         if strategy is None:
             strategy = auto_strategy(query)
@@ -324,7 +324,7 @@ class Storage:
                 }
 
         results.sort(key=lambda x: -x.get("score", 0))
-        return results[:limit]
+        return Ok(results[:limit])
 
     def _row_to_result(self, row: sqlite3.Row, source: str, highlighted: str | None = None, score: float | None = None) -> dict:
         """Convert a database row to a search result dict."""
@@ -414,7 +414,7 @@ class Storage:
             logger.debug("LIKE search failed: %s", e)
             return []
 
-    def get(self, file_path: str, chunk: int | None = None) -> dict | None:
+    def get(self, file_path: str, chunk: int | None = None) -> Ok[dict] | Err:
         """Get a document by path, optionally a specific chunk."""
         conn = self._get_conn()
         try:
@@ -423,27 +423,27 @@ class Storage:
                     "SELECT * FROM documents WHERE file_path = ? AND chunk_index = ?",
                     (file_path, chunk),
                 ).fetchone()
+                if row:
+                    return Ok(dict(row))
+                return Err(f"Document not found: {file_path}")
             else:
                 rows = conn.execute(
                     "SELECT * FROM documents WHERE file_path = ? ORDER BY chunk_index",
                     (file_path,),
                 ).fetchall()
                 if not rows:
-                    return None
+                    return Err(f"Document not found: {file_path}")
                 content = "\n".join(r["content"] for r in rows)
-                return {
+                return Ok({
                     "file_path": rows[0]["file_path"],
                     "content": content,
                     "collection": rows[0]["collection"],
                     "title": rows[0]["title"],
                     "chunks": len(rows),
-                }
-            if row:
-                return dict(row)
-            return None
+                })
         except sqlite3.Error as e:
             logger.debug("Get failed: %s", e)
-            return None
+            return Err(str(e))
 
     def update_document(self, file_path: str, content: str, title: str | None = None) -> Ok[dict] | Err:
         """Update a document's content."""
@@ -487,7 +487,7 @@ class Storage:
                    FROM documents GROUP BY collection"""
             ).fetchall()
             from uri import VALID_DOMAINS
-            return [
+            return Ok([
                 {
                     "name": r["collection"],
                     "count": r["docs"],
@@ -496,12 +496,12 @@ class Storage:
                     "domain": r["collection"].split("__")[0] if "__" in r["collection"] and r["collection"].split("__")[0] in VALID_DOMAINS else None,
                 }
                 for r in rows
-            ]
+            ])
         except sqlite3.Error as e:
             logger.debug("List collections failed: %s", e)
-            return []
+            return Err(str(e))
 
-    def stats(self) -> dict:
+    def stats(self) -> Ok[dict] | Err:
         """Get database statistics."""
         conn = self._get_conn()
         try:
@@ -509,17 +509,17 @@ class Storage:
             docs = conn.execute("SELECT COUNT(DISTINCT file_path) FROM documents").fetchone()[0]
             collections = conn.execute("SELECT COUNT(DISTINCT collection) FROM documents").fetchone()[0]
             config = self._load_config()
-            return {
+            return Ok({
                 "total_chunks": total,
                 "total_documents": docs,
                 "collections": collections,
                 "repos": len(config.get("repos", {})),
                 "db_path": str(self.db_path),
                 "db_size_kb": round(self.db_path.stat().st_size / 1024) if self.db_path.exists() else 0,
-            }
+            })
         except (sqlite3.Error, OSError) as e:
             logger.debug("Stats failed: %s", e)
-            return {"total_chunks": 0, "total_documents": 0, "collections": 0, "repos": 0, "db_path": "", "db_size_kb": 0}
+            return Err(str(e))
 
     def _load_config(self) -> dict:
         if self.config_path.exists():
@@ -537,13 +537,13 @@ class Storage:
                 tmp_path.unlink()
             raise
 
-    def check_stale(self, collection: str) -> list[dict]:
+    def check_stale(self, collection: str) -> Ok[list[dict]] | Err:
         """Check for stale documents by comparing content hashes."""
         conn = self._get_conn()
         try:
             repo_dir = self.repos_dir / collection
             if not repo_dir.exists():
-                return []
+                return Ok([])
 
             stale = []
             rows = conn.execute(
@@ -562,7 +562,7 @@ class Storage:
                 else:
                     stale.append({"file_path": row["file_path"], "reason": "file_deleted"})
 
-            return stale
+            return Ok(stale)
         except (sqlite3.Error, OSError) as e:
             logger.debug("Stale check failed: %s", e)
-            return []
+            return Err(str(e))

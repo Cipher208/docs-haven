@@ -98,16 +98,19 @@ class ConflictDetector:
         storage = self._get_storage()
 
         # Search with the title as query
-        results = storage.search(
+        result = storage.search(
             query=title,
             collections=collections,
             limit=self.MAX_CANDIDATES + 2,
             strategy="fts",
         )
 
+        if result.is_err():
+            return []
+
         # Filter by score threshold and exclude exact matches
         candidates = []
-        for r in results:
+        for r in result.value:
             score = r.get("score", 0)
             if score >= self.SCORE_THRESHOLD:
                 candidates.append(

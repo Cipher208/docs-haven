@@ -15,7 +15,11 @@ def get_storage() -> Storage:
 def cmd_search(args: argparse.Namespace) -> None:
     """Search the knowledge base."""
     storage = get_storage()
-    results = storage.search(args.query, limit=args.limit, explain=getattr(args, "explain", False))
+    result = storage.search(args.query, limit=args.limit, explain=getattr(args, "explain", False))
+    if result.is_err():
+        print(f"Error: {result.error}")
+        sys.exit(1)
+    results = result.value
     if not results:
         print("No results found.")
         return
@@ -42,7 +46,11 @@ def cmd_add(args: argparse.Namespace) -> None:
 def cmd_stats(args: argparse.Namespace) -> None:
     """Show knowledge base statistics."""
     storage = get_storage()
-    stats = storage.stats()
+    result = storage.stats()
+    if result.is_err():
+        print(f"Error: {result.error}")
+        sys.exit(1)
+    stats = result.value
     print(f"Collections: {stats['collections']}")
     print(f"Documents: {stats['total_documents']}")
     print(f"Chunks: {stats['total_chunks']}")

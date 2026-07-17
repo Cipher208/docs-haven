@@ -87,13 +87,16 @@ class TestStorage:
         assert tmp_storage.db_path.exists()
 
     def test_stats_empty(self, tmp_storage):
-        stats = tmp_storage.stats()
+        result = tmp_storage.stats()
+        assert result.is_ok()
+        stats = result.value
         assert stats["total_documents"] == 0
         assert stats["collections"] == 0
 
     def test_list_collections_empty(self, tmp_storage):
-        collections = tmp_storage.list_collections()
-        assert collections == []
+        result = tmp_storage.list_collections()
+        assert result.is_ok()
+        assert result.value == []
 
     def test_list_collections_domain(self, tmp_storage):
         conn = tmp_storage._get_conn()
@@ -107,18 +110,21 @@ class TestStorage:
         )
         conn.commit()
 
-        collections = tmp_storage.list_collections()
+        result = tmp_storage.list_collections()
+        assert result.is_ok()
+        collections = result.value
         by_name = {c["name"]: c for c in collections}
         assert by_name["core__fastapi"]["domain"] == "core"
         assert by_name["misc"]["domain"] is None
 
     def test_get_nonexistent(self, tmp_storage):
         result = tmp_storage.get("nonexistent.md")
-        assert result is None
+        assert result.is_err()
 
     def test_search_empty(self, tmp_storage):
-        results = tmp_storage.search("test query")
-        assert results == []
+        result = tmp_storage.search("test query")
+        assert result.is_ok()
+        assert result.value == []
 
 
 class TestStorageSearch:
@@ -135,7 +141,9 @@ class TestStorageSearch:
         )
         conn.commit()
 
-        results = tmp_storage.search("FastAPI")
+        result = tmp_storage.search("FastAPI")
+        assert result.is_ok()
+        results = result.value
         assert len(results) >= 1
         assert results[0]["title"] == "FastAPI Guide"
         assert results[0]["score"] > 0
@@ -152,7 +160,9 @@ class TestStorageSearch:
         )
         conn.commit()
 
-        results = tmp_storage.search("tutorial", collections=["fastapi"])
+        result = tmp_storage.search("tutorial", collections=["fastapi"])
+        assert result.is_ok()
+        results = result.value
         assert all(r["collection"] == "fastapi" for r in results)
 
     def test_get_document(self, tmp_storage):
@@ -163,8 +173,9 @@ class TestStorageSearch:
         )
         conn.commit()
 
-        doc = tmp_storage.get("README.md")
-        assert doc is not None
+        result = tmp_storage.get("README.md")
+        assert result.is_ok()
+        doc = result.value
         assert "Test Repo" in doc["content"]
 
     def test_search_hybrid_strategy(self, tmp_storage):
@@ -175,7 +186,9 @@ class TestStorageSearch:
         )
         conn.commit()
 
-        results = tmp_storage.search("FastAPI dependency injection", strategy="hybrid")
+        result = tmp_storage.search("FastAPI dependency injection", strategy="hybrid")
+        assert result.is_ok()
+        results = result.value
         assert len(results) >= 1
         assert results[0]["score"] > 0
 
@@ -187,7 +200,9 @@ class TestStorageSearch:
         )
         conn.commit()
 
-        results = tmp_storage.search("FastAPI", explain=True)
+        result = tmp_storage.search("FastAPI", explain=True)
+        assert result.is_ok()
+        results = result.value
         assert len(results) > 0
         r = results[0]
         assert "explain" in r
@@ -204,7 +219,9 @@ class TestStorageSearch:
         )
         conn.commit()
 
-        results = tmp_storage.search("Test")
+        result = tmp_storage.search("Test")
+        assert result.is_ok()
+        results = result.value
         assert len(results) > 0
         assert "explain" not in results[0]
 
@@ -219,7 +236,9 @@ class TestStorageSearch:
         )
         conn.commit()
 
-        stale = tmp_storage.check_stale("test")
+        result = tmp_storage.check_stale("test")
+        assert result.is_ok()
+        stale = result.value
         assert len(stale) == 1
         assert stale[0]["reason"] == "file_deleted"
 
@@ -236,13 +255,16 @@ class TestStorageSearch:
         )
         conn.commit()
 
-        stale = tmp_storage.check_stale("test")
+        result = tmp_storage.check_stale("test")
+        assert result.is_ok()
+        stale = result.value
         assert len(stale) == 1
         assert stale[0]["reason"] == "symlink_skipped"
 
     def test_search_empty_query(self, tmp_storage):
-        results = tmp_storage.search("")
-        assert results == []
+        result = tmp_storage.search("")
+        assert result.is_ok()
+        assert result.value == []
 
     def test_search_sql_injection(self, tmp_storage):
         conn = tmp_storage._get_conn()
@@ -251,8 +273,9 @@ class TestStorageSearch:
             ("test", "doc.md", "Normal content", "Normal"),
         )
         conn.commit()
-        results = tmp_storage.search('"; DROP TABLE documents; --')
-        assert isinstance(results, list)
+        result = tmp_storage.search('"; DROP TABLE documents; --')
+        assert result.is_ok()
+        assert isinstance(result.value, list)
 
     def test_search_limit_zero(self, tmp_storage):
         conn = tmp_storage._get_conn()
@@ -261,8 +284,9 @@ class TestStorageSearch:
             ("test", "doc.md", "Content", "Title"),
         )
         conn.commit()
-        results = tmp_storage.search("Content", limit=0)
-        assert results == []
+        result = tmp_storage.search("Content", limit=0)
+        assert result.is_ok()
+        assert result.value == []
 
     def test_auto_strategy_boundary(self):
         from storage import auto_strategy

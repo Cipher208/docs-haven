@@ -98,26 +98,34 @@ class URIRouter:
         if uri.path.endswith("/*"):
             # Wildcard: search all collections in domain
             prefix = f"{uri.domain}__"
-            collections = [c["name"] for c in self.storage.list_collections() if c.get("name", "").startswith(prefix)]
+            result = self.storage.list_collections()
+            if result.is_err():
+                return []
+            collections = [c["name"] for c in result.value if c.get("name", "").startswith(prefix)]
             if not collections:
                 return []
-            return self.storage.search(
+            result = self.storage.search(
                 query=uri.path.rstrip("/*").split("/")[-1] if "/" in uri.path else "*",
                 collections=collections,
                 limit=limit,
             )
+            return result.value if result.is_ok() else []
 
-        return self.storage.search(
+        result = self.storage.search(
             query=uri.path.split("/")[-1],
             collections=[collection],
             limit=limit,
         )
+        return result.value if result.is_ok() else []
 
     def list_by_domain(self, domain: str) -> list[dict]:
         """List all URIs in a domain."""
         if domain not in VALID_DOMAINS:
             return [{"error": f"Unknown domain: {domain}"}]
-        collections = self.storage.list_collections()
+        result = self.storage.list_collections()
+        if result.is_err():
+            return []
+        collections = result.value
         prefix = f"{domain}__"
         return [
             {"collection": c["name"], "uri": f"{domain}://{c['name'].replace(prefix, '')}"}
@@ -127,7 +135,10 @@ class URIRouter:
 
     def list_all_domains(self) -> dict:
         """List all domains with their collection counts."""
-        collections = self.storage.list_collections()
+        result = self.storage.list_collections()
+        if result.is_err():
+            return {}
+        collections = result.value
         domains: dict[str, int] = {}
         for c in collections:
             name = c.get("name", "")

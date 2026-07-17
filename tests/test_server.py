@@ -8,11 +8,13 @@ import pytest
 @pytest.fixture
 def mock_storage():
     """Create a mock storage for server tests."""
+    from result import Ok
+
     with patch("server._get_storage") as mock:
         storage = MagicMock()
-        storage.search.return_value = [{"score": 0.9, "collection": "test", "title": "Test", "content": "Content...", "path": "test/doc.md"}]
-        storage.stats.return_value = {"total_documents": 10, "collections": 2, "repos": 1, "total_chunks": 50, "db_path": "", "db_size_kb": 1024}
-        storage.list_collections.return_value = [{"name": "test", "count": 10}]
+        storage.search.return_value = Ok([{"score": 0.9, "collection": "test", "title": "Test", "content": "Content...", "path": "test/doc.md"}])
+        storage.stats.return_value = Ok({"total_documents": 10, "collections": 2, "repos": 1, "total_chunks": 50, "db_path": "", "db_size_kb": 1024})
+        storage.list_collections.return_value = Ok([{"name": "test", "count": 10}])
         mock.return_value = storage
         yield storage
 

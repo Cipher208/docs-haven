@@ -5,12 +5,13 @@ from unittest.mock import patch
 import pytest
 
 from cli import main
+from result import Ok
 
 
 def test_cli_search(monkeypatch):
     """Test search command."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.search.return_value = [{"score": 0.9, "collection": "test", "title": "Test Doc", "content": "Content..."}]
+        mock.return_value.search.return_value = Ok([{"score": 0.9, "collection": "test", "title": "Test Doc", "content": "Content..."}])
         with patch("sys.argv", ["cli", "search", "test query"]):
             main()
 
@@ -18,12 +19,12 @@ def test_cli_search(monkeypatch):
 def test_cli_stats(monkeypatch):
     """Test stats command."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.stats.return_value = {
+        mock.return_value.stats.return_value = Ok({
             "collections": 2,
             "total_documents": 100,
             "total_chunks": 500,
             "db_size_kb": 1024,
-        }
+        })
         with patch("sys.argv", ["cli", "stats"]):
             main()
 

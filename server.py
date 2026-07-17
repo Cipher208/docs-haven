@@ -68,7 +68,10 @@ async def kb_search(
         explain: Include scoring breakdown in results (default: false)
     """
     storage = _get_storage()
-    results = storage.search(query, collections, limit, explain=explain)
+    result = storage.search(query, collections, limit, explain=explain)
+    if result.is_err():
+        return {"error": result.error}
+    results = result.value
     if min_score > 0:
         results = [r for r in results if r.get("score", 0) >= min_score]
     return results
@@ -105,7 +108,9 @@ async def kb_get(file_path: str) -> dict:
         file_path: Document path (e.g., 'repo/README.md')
     """
     result = _get_storage().get(file_path)
-    return result if result else {"error": "Document not found"}
+    if result.is_err():
+        return {"error": result.error}
+    return result.value
 
 
 @mcp.tool()
@@ -142,13 +147,19 @@ async def kb_delete(file_path: str, collection: str | None = None) -> dict:
 @mcp.tool()
 async def kb_list_collections() -> list[dict]:
     """List all knowledge base collections with document counts."""
-    return _get_storage().list_collections()
+    result = _get_storage().list_collections()
+    if result.is_err():
+        return [{"error": result.error}]
+    return result.value
 
 
 @mcp.tool()
 async def kb_stats() -> dict:
     """Get knowledge base statistics."""
-    return _get_storage().stats()
+    result = _get_storage().stats()
+    if result.is_err():
+        return {"error": result.error}
+    return result.value
 
 
 # ── URI Routing Tools ──────────────────────────────────────────────────────
