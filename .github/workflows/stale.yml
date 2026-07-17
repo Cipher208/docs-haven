@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/stale@24487ee7910a4891c0e6f5ea41f1b0614d3c3e14 # v9.1.0
+      - uses: actions/stale@v9
         with:
           stale-issue-message: "This issue has been automatically marked as stale because it has not had activity in 30 days. It will be closed in 7 days if no further activity occurs."
           stale-pr-message: "This PR has been automatically marked as stale because it has not had activity in 30 days. It will be closed in 7 days if no further activity occurs."
