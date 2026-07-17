@@ -20,18 +20,6 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class ConflictCandidate:
-    """A potential conflict with an existing document."""
-
-    title: str
-    collection: str
-    score: float
-    path: str
-    snippet: str = ""
-    judgment: str = "pending"  # pending, supersedes, conflicts_with, unrelated
-
-
-@dataclass
 class ConflictResult:
     """Result of conflict detection for a new document."""
 
@@ -86,20 +74,21 @@ class ConflictDetector:
         Returns:
             ConflictResult with candidates and judgment status
         """
-        candidates = self._find_similar(title, collections)
+        candidates = self._find_similar(title, content, collections)
 
         return ConflictResult(
             new_title=title,
             candidates=candidates,
         )
 
-    def _find_similar(self, title: str, collections: list[str] | None = None) -> list[dict]:
+    def _find_similar(self, title: str, content: str = "", collections: list[str] | None = None) -> list[dict]:
         """Find documents with similar titles using Storage search."""
         storage = self._get_storage()
 
-        # Search with the title as query
+        # Search with title + content keywords for better coverage
+        query = f"{title} {content[:200]}" if content else title
         result = storage.search(
-            query=title,
+            query=query,
             collections=collections,
             limit=self.MAX_CANDIDATES + 2,
             strategy="fts",

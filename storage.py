@@ -126,18 +126,23 @@ class Storage:
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get or create a persistent connection with WAL mode and performance PRAGMAs."""
-        if self._conn is None:
-            with self._conn_lock:
-                if self._conn is None:
-                    conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-                    conn.row_factory = sqlite3.Row
-                    conn.execute("PRAGMA journal_mode=WAL")
-                    conn.execute("PRAGMA busy_timeout=5000")
-                    conn.execute("PRAGMA synchronous=NORMAL")
-                    conn.execute("PRAGMA cache_size=-64000")
-                    conn.execute("PRAGMA temp_store=MEMORY")
-                    conn.execute("PRAGMA mmap_size=268435456")
-                    self._conn = conn
+        if self._conn is not None:
+            try:
+                self._conn.execute("SELECT 1")
+                return self._conn
+            except sqlite3.ProgrammingError:
+                self._conn = None
+        with self._conn_lock:
+            if self._conn is None:
+                conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=5000")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA cache_size=-64000")
+                conn.execute("PRAGMA temp_store=MEMORY")
+                conn.execute("PRAGMA mmap_size=268435456")
+                self._conn = conn
         return self._conn
 
     def _init_db(self):
@@ -251,6 +256,10 @@ class Storage:
                 timeout=120,
             )
             if result.returncode != 0:
+                # Clean up partial clone
+                if repo_dir.exists():
+                    import shutil
+                    shutil.rmtree(repo_dir, ignore_errors=True)
                 return Err(f"Clone failed: {result.stderr}")
 
         file_mask = mask or "**/*.md"
@@ -299,6 +308,7 @@ class Storage:
         strategy: str | None = None,
         *,
         explain: bool = False,
+        min_score: float = 0.0,
     ) -> Ok[list[dict]] | Err:
         """Search with auto strategy selection."""
         if strategy is None:
@@ -324,6 +334,8 @@ class Storage:
                 }
 
         results.sort(key=lambda x: -x.get("score", 0))
+        if min_score > 0:
+            results = [r for r in results if r.get("score", 0) >= min_score]
         return Ok(results[:limit])
 
     def _row_to_result(self, row: sqlite3.Row, source: str, highlighted: str | None = None, score: float | None = None) -> dict:
@@ -393,7 +405,7 @@ class Storage:
                     SELECT file_path, content, collection, title,
                            chunk_index, total_chunks
                     FROM documents
-                    WHERE (title LIKE ? OR content LIKE ?)
+                    WHERE (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')
                     AND collection IN ({placeholders})
                     LIMIT ?
                 """
@@ -403,7 +415,7 @@ class Storage:
                     SELECT file_path, content, collection, title,
                            chunk_index, total_chunks
                     FROM documents
-                    WHERE title LIKE ? OR content LIKE ?
+                    WHERE title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'
                     LIMIT ?
                 """
                 params = [f"%{escaped}%", f"%{escaped}%", limit]
@@ -414,23 +426,35 @@ class Storage:
             logger.debug("LIKE search failed: %s", e)
             return []
 
-    def get(self, file_path: str, chunk: int | None = None) -> Ok[dict] | Err:
-        """Get a document by path, optionally a specific chunk."""
+    def get(self, file_path: str, chunk: int | None = None, collection: str | None = None) -> Ok[dict] | Err:
+        """Get a document by path, optionally a specific chunk and collection."""
         conn = self._get_conn()
         try:
             if chunk is not None:
-                row = conn.execute(
-                    "SELECT * FROM documents WHERE file_path = ? AND chunk_index = ?",
-                    (file_path, chunk),
-                ).fetchone()
+                if collection:
+                    row = conn.execute(
+                        "SELECT * FROM documents WHERE file_path = ? AND chunk_index = ? AND collection = ?",
+                        (file_path, chunk, collection),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT * FROM documents WHERE file_path = ? AND chunk_index = ?",
+                        (file_path, chunk),
+                    ).fetchone()
                 if row:
                     return Ok(dict(row))
                 return Err(f"Document not found: {file_path}")
             else:
-                rows = conn.execute(
-                    "SELECT * FROM documents WHERE file_path = ? ORDER BY chunk_index",
-                    (file_path,),
-                ).fetchall()
+                if collection:
+                    rows = conn.execute(
+                        "SELECT * FROM documents WHERE file_path = ? AND collection = ? ORDER BY chunk_index",
+                        (file_path, collection),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT * FROM documents WHERE file_path = ? ORDER BY chunk_index",
+                        (file_path,),
+                    ).fetchall()
                 if not rows:
                     return Err(f"Document not found: {file_path}")
                 content = "\n".join(r["content"] for r in rows)
@@ -523,7 +547,10 @@ class Storage:
 
     def _load_config(self) -> dict:
         if self.config_path.exists():
-            return json.loads(self.config_path.read_text())
+            try:
+                return json.loads(self.config_path.read_text())
+            except json.JSONDecodeError:
+                logger.warning("Broken config.json, using defaults")
         return {"repos": {}}
 
     def _save_config(self, config: dict):

@@ -68,13 +68,10 @@ async def kb_search(
         explain: Include scoring breakdown in results (default: false)
     """
     storage = _get_storage()
-    result = storage.search(query, collections, limit, explain=explain)
+    result = storage.search(query, collections, limit, explain=explain, min_score=min_score)
     if result.is_err():
         return {"error": result.error}
-    results = result.value
-    if min_score > 0:
-        results = [r for r in results if r.get("score", 0) >= min_score]
-    return results
+    return result.value
 
 
 @mcp.tool()
