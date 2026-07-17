@@ -94,15 +94,15 @@ class Syncer:
 
         # Serialize and compress
         chunk_json = json.dumps(chunk, ensure_ascii=False).encode()
-        chunk_id = hashlib.sha256(chunk_json).hexdigest()[:8]
+        chunk_id = hashlib.sha256(chunk_json).hexdigest()[:16]
 
         # Check if already exists
         known = {c.id for c in manifest.chunks}
         if chunk_id in known:
-            return {"isEmpty": True}
+            return {"isEmpty": True, "duplicate": True}
 
         # Write compressed chunk
-        chunk_path = self.chunks_dir / f"{chunk_id}.jsonl.gz"
+        chunk_path = self.chunks_dir / f"{chunk_id}.json.gz"
         with gzip.open(chunk_path, "wb") as f:
             f.write(chunk_json)
 
@@ -165,7 +165,7 @@ class Syncer:
         }
 
         for entry in manifest.chunks:
-            chunk_path = self.chunks_dir / f"{entry.id}.jsonl.gz"
+            chunk_path = self.chunks_dir / f"{entry.id}.json.gz"
             if not chunk_path.exists():
                 result["chunks_skipped"] += 1
                 continue
@@ -205,7 +205,7 @@ class Syncer:
         local_chunks = len(manifest.chunks)
 
         # Count actual chunk files
-        actual_files = len(list(self.chunks_dir.glob("*.jsonl.gz")))
+        actual_files = len(list(self.chunks_dir.glob("*.json.gz")))
 
         return {
             "local_chunks": local_chunks,

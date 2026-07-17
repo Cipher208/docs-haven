@@ -26,6 +26,9 @@ async def test_kb_search(mock_storage):
 
     result = await kb_search("test query")
     assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0]["title"] == "Test"
+    assert result[0]["score"] == 0.9
 
 
 @pytest.mark.asyncio
@@ -34,7 +37,9 @@ async def test_kb_stats(mock_storage):
     from server import kb_stats
 
     result = await kb_stats()
-    assert "total_documents" in result
+    assert result["total_documents"] == 10
+    assert result["collections"] == 2
+    assert result["repos"] == 1
 
 
 @pytest.mark.asyncio
@@ -44,6 +49,8 @@ async def test_kb_list_collections(mock_storage):
 
     result = await kb_list_collections()
     assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0]["name"] == "test"
 
 
 @pytest.mark.asyncio

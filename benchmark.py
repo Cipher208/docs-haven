@@ -68,6 +68,12 @@ def benchmark_search(storage: Storage, n_queries: int = 100) -> dict:
     ]
 
     times: list[float] = []
+
+    # Warmup: 10 queries to initialize FTS5 cache
+    for _ in range(10):
+        for q in queries:
+            storage.search(q, limit=10)
+
     for _ in range(n_queries):
         for q in queries:
             start = time.perf_counter()

@@ -94,7 +94,11 @@ async def kb_add_repo(
         description: Optional description
         mask: File pattern (default: **/*.md). Use **/*.rst for Sphinx, **/*.py for Python.
     """
-    result = _get_storage().add_repo(url, tags, description, mask)
+    import asyncio
+    storage = _get_storage()
+    # Run blocking git clone in executor to avoid blocking event loop
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, storage.add_repo, url, tags, description, mask)
     if result.is_err():
         return {"error": result.error}
     return result.value
@@ -107,6 +111,9 @@ async def kb_get(file_path: str) -> dict:
     Args:
         file_path: Document path (e.g., 'repo/README.md')
     """
+    # Path traversal protection
+    if ".." in file_path or file_path.startswith("/"):
+        return {"error": "Invalid file path"}
     result = _get_storage().get(file_path)
     if result.is_err():
         return {"error": result.error}
@@ -272,7 +279,16 @@ async def kb_conflict_judge(
 
 
 if __name__ == "__main__":
+    import atexit
     import sys
+
+    def _shutdown():
+        s = _get_storage()
+        if s is not None:
+            s.close()
+            logger.info("Storage connection closed.")
+
+    atexit.register(_shutdown)
 
     _HTTP_FLAG = "--http"
     if _HTTP_FLAG in sys.argv:

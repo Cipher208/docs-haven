@@ -76,6 +76,34 @@ def cmd_uri(args: argparse.Namespace) -> None:
             print(f"  {d}: {info['count']} collections")
 
 
+def cmd_list(args: argparse.Namespace) -> None:
+    """List all collections."""
+    storage = get_storage()
+    result = storage.list_collections()
+    if result.is_err():
+        print(f"Error: {result.error}")
+        sys.exit(1)
+    for c in result.value:
+        print(f"  {c['name']}: {c['count']} docs, {c['chunks']} chunks")
+
+
+def cmd_delete(args: argparse.Namespace) -> None:
+    """Delete a document."""
+    storage = get_storage()
+    result = storage.delete_document(args.file_path)
+    if result.is_err():
+        print(f"Error: {result.error}")
+        sys.exit(1)
+    print(f"Deleted: {result.value['file_path']}")
+
+
+def cmd_serve(args: argparse.Namespace) -> None:
+    """Start MCP server."""
+    import uvicorn
+    from server import mcp
+    uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=args.port)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="DocsHaven CLI")
     subparsers = parser.add_subparsers(dest="command")
@@ -106,6 +134,20 @@ def main() -> None:
     lp.add_argument("domain", help="Domain to list")
     uri_sub.add_parser("domains", help="List all domains")
     sp.set_defaults(func=cmd_uri)
+
+    # list
+    sp = subparsers.add_parser("list", help="List all collections")
+    sp.set_defaults(func=cmd_list)
+
+    # delete
+    sp = subparsers.add_parser("delete", help="Delete a document")
+    sp.add_argument("file_path", help="Document path to delete")
+    sp.set_defaults(func=cmd_delete)
+
+    # serve
+    sp = subparsers.add_parser("serve", help="Start MCP server")
+    sp.add_argument("-p", "--port", type=int, default=8000, help="Port (default: 8000)")
+    sp.set_defaults(func=cmd_serve)
 
     args = parser.parse_args()
     if not args.command:

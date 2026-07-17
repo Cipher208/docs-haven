@@ -46,9 +46,6 @@ class URI:
 
     def to_file_pattern(self) -> str:
         """Map URI to file glob pattern for QMD search."""
-        parts = self.path.split("/")
-        if len(parts) >= 2:
-            return f"**/{parts[-1]}*"
         return f"**/{self.path}*"
 
     def __str__(self) -> str:
@@ -94,8 +91,8 @@ class URIRouter:
         uri = URI.parse(uri_str)
         collection = uri.to_collection()
 
-        # Check for wildcard pattern
-        if uri.path.endswith("/*"):
+        # Check for wildcard pattern (core://fastapi/* or core://*)
+        if uri.path.endswith("/*") or uri.path == "*":
             # Wildcard: search all collections in domain
             prefix = f"{uri.domain}__"
             result = self.storage.list_collections()
