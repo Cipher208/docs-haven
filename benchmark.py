@@ -46,7 +46,7 @@ def benchmark_indexing(storage: Storage, n_docs: int) -> float:
             ("benchmark", name, content, f"Document {name.split('.')[0]}"),
         )
     conn.commit()
-    conn.close()
+    # Don't close conn — it's Storage's persistent connection
     elapsed = time.perf_counter() - start
 
     return elapsed

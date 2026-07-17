@@ -43,7 +43,7 @@ def _get_router() -> URIRouter:
 
 
 def _get_detector() -> ConflictDetector:
-    return ConflictDetector()
+    return ConflictDetector(_get_storage())
 
 
 # ── Core Search & Retrieval ────────────────────────────────────────────────

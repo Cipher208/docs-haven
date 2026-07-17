@@ -198,6 +198,17 @@ class Storage:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_filepath ON documents(file_path)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_collection_filepath ON documents(collection, file_path)")
 
+        # Conflict judgments table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS conflict_judgments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                new_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                judgment TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
         conn.commit()
 
     def _index_file(self, conn: sqlite3.Connection, f: Path, repo_dir: Path, name: str, description: str | None) -> int:

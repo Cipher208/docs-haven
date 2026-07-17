@@ -133,6 +133,17 @@ class ConflictDetector:
         if judgment not in valid_judgments:
             return {"error": f"Invalid judgment. Must be one of: {sorted(valid_judgments)}"}
 
+        storage = self._get_storage()
+        conn = storage._get_conn()
+        try:
+            conn.execute(
+                "INSERT INTO conflict_judgments (new_id, candidate_id, judgment) VALUES (?, ?, ?)",
+                (new_id, candidate_id, judgment),
+            )
+            conn.commit()
+        except Exception:
+            pass  # Best effort — don't fail if table missing
+
         return {
             "status": "recorded",
             "new_id": new_id,
