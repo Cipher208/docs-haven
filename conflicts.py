@@ -8,11 +8,15 @@ Uses Storage.search() instead of external QMD CLI.
 
 from __future__ import annotations
 
+import logging
+import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from storage import Storage
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -141,8 +145,8 @@ class ConflictDetector:
                 (new_id, candidate_id, judgment),
             )
             conn.commit()
-        except Exception:
-            pass  # Best effort — don't fail if table missing
+        except sqlite3.Error as e:
+            logger.warning("Failed to persist judgment: %s", e)
 
         return {
             "status": "recorded",

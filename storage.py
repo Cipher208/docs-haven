@@ -445,8 +445,8 @@ class Storage:
             logger.debug("Get failed: %s", e)
             return None
 
-    def update_document(self, file_path: str, content: str, title: str | None = None) -> bool:
-        """Update a document's content. Returns True on success."""
+    def update_document(self, file_path: str, content: str, title: str | None = None) -> Ok[dict] | Err:
+        """Update a document's content."""
         conn = self._get_conn()
         try:
             if title:
@@ -460,21 +460,21 @@ class Storage:
                     (content, file_path),
                 )
             conn.commit()
-            return True
+            return Ok({"status": "updated", "file_path": file_path})
         except sqlite3.Error as e:
             logger.debug("Update failed: %s", e)
-            return False
+            return Err(str(e))
 
-    def delete_document(self, file_path: str) -> bool:
-        """Delete a document by path. Returns True on success."""
+    def delete_document(self, file_path: str) -> Ok[dict] | Err:
+        """Delete a document by path."""
         conn = self._get_conn()
         try:
             conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
             conn.commit()
-            return True
+            return Ok({"status": "deleted", "file_path": file_path})
         except sqlite3.Error as e:
             logger.debug("Delete failed: %s", e)
-            return False
+            return Err(str(e))
 
     def list_collections(self) -> list[dict]:
         """List all collections with document counts."""

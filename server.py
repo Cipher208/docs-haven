@@ -118,9 +118,10 @@ async def kb_update(file_path: str, content: str, title: str | None = None) -> d
         title: Optional new title
     """
     storage = _get_storage()
-    if storage.update_document(file_path, content, title):
-        return {"status": "updated", "file_path": file_path}
-    return {"error": "Update failed"}
+    result = storage.update_document(file_path, content, title)
+    if result.is_err():
+        return {"error": result.error}
+    return result.value
 
 
 @mcp.tool()
@@ -132,9 +133,10 @@ async def kb_delete(file_path: str, collection: str | None = None) -> dict:
         collection: Optional collection scope (prevents cross-collection deletes)
     """
     storage = _get_storage()
-    if storage.delete_document(file_path):
-        return {"status": "deleted", "file_path": file_path}
-    return {"error": "Delete failed"}
+    result = storage.delete_document(file_path)
+    if result.is_err():
+        return {"error": result.error}
+    return result.value
 
 
 @mcp.tool()

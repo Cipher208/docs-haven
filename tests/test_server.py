@@ -68,8 +68,9 @@ async def test_kb_uri_domains():
 async def test_kb_update(mock_storage):
     """Test update tool."""
     from server import kb_update
+    from result import Ok
 
-    mock_storage._get_conn.return_value.execute.return_value = None
+    mock_storage.update_document.return_value = Ok({"status": "updated", "file_path": "test/doc.md"})
     result = await kb_update("test/doc.md", "new content", title="New Title")
     assert result["status"] == "updated"
     assert result["file_path"] == "test/doc.md"
@@ -79,8 +80,9 @@ async def test_kb_update(mock_storage):
 async def test_kb_delete(mock_storage):
     """Test delete tool."""
     from server import kb_delete
+    from result import Ok
 
-    mock_storage._get_conn.return_value.execute.return_value = None
+    mock_storage.delete_document.return_value = Ok({"status": "deleted", "file_path": "test/doc.md"})
     result = await kb_delete("test/doc.md")
     assert result["status"] == "deleted"
     assert result["file_path"] == "test/doc.md"
