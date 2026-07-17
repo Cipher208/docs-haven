@@ -104,8 +104,13 @@ class URIRouter:
             collections = [c["name"] for c in result.value if c.get("name", "").startswith(prefix)]
             if not collections:
                 return []
+            # Extract search term from path (e.g., core://fastapi/* → "fastapi")
+            search_term = uri.path.rstrip("/*").split("/")[-1] if "/" in uri.path else ""
+            if not search_term:
+                # No search term — return all docs in domain via broad query
+                search_term = " OR ".join(collections)
             result = self.storage.search(
-                query=uri.path.rstrip("/*").split("/")[-1] if "/" in uri.path else "*",
+                query=search_term,
                 collections=collections,
                 limit=limit,
             )

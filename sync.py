@@ -175,6 +175,20 @@ class Syncer:
                 result["chunks_skipped"] += 1
                 continue
 
+            # Check if this chunk was already imported (by chunk_id in collection name)
+            if storage is not None:
+                conn = storage._get_conn()
+                try:
+                    existing = conn.execute(
+                        "SELECT COUNT(*) FROM documents WHERE collection = ?",
+                        (f"sync_{entry.id}",),
+                    ).fetchone()[0]
+                    if existing > 0:
+                        result["chunks_skipped"] += 1
+                        continue
+                except Exception:
+                    pass
+
             with gzip.open(chunk_path, "rb") as f:
                 chunk_data = json.loads(f.read())
 
