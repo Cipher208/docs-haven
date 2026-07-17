@@ -25,7 +25,8 @@ def cmd_search(args: argparse.Namespace) -> None:
         return
     for r in results:
         print(f"{r['score']:.2f} [{r['collection']}] {r['title']}")
-        print(f"  {r['content'][:100]}...")
+        content = r.get('content', '')
+        print(f"  {content[:100]}...")
         if "explain" in r:
             e = r["explain"]
             print(f"  explain: base={e['base_score']}, boost={e['type_boost']}, source={e['source']}")

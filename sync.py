@@ -78,6 +78,7 @@ class Syncer:
             {chunk_id, collections, documents, isEmpty}
         """
         manifest = Manifest.from_file(self.manifest_path)
+        created_by = created_by or "unknown"
 
         # Build chunk content
         chunk: dict = {
