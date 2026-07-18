@@ -5,7 +5,7 @@ Uses Pydantic v2 for validation and serialization.
 
 from __future__ import annotations
 
-from typing import Any, Generic, NoReturn, TypeVar, Union
+from typing import Any, Generic, NoReturn, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -43,7 +43,7 @@ class Err(BaseModel):
         raise RuntimeError(self.error)
 
 
-Result = Union[Ok[Any], Err]
+Result = Ok[Any] | Err
 
 
 def ok(value: T) -> Ok[T]:

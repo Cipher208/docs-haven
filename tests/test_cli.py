@@ -34,15 +34,17 @@ def test_cli_search_empty(capsys):
 def test_cli_search_explain(capsys):
     """Test search with explain flag."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.search.return_value = Ok(value=[
-            {
-                "score": 0.85,
-                "collection": "test",
-                "title": "Test",
-                "content": "Content",
-                "explain": {"base_score": 0.7, "type_boost": 0.15, "source": "fts5"},
-            }
-        ])
+        mock.return_value.search.return_value = Ok(
+            value=[
+                {
+                    "score": 0.85,
+                    "collection": "test",
+                    "title": "Test",
+                    "content": "Content",
+                    "explain": {"base_score": 0.7, "type_boost": 0.15, "source": "fts5"},
+                }
+            ]
+        )
         with patch("sys.argv", ["cli", "search", "test", "--explain"]):
             main()
     captured = capsys.readouterr()
@@ -53,12 +55,14 @@ def test_cli_search_explain(capsys):
 def test_cli_stats(capsys):
     """Test stats command outputs statistics."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.stats.return_value = Ok(value={
-            "collections": 2,
-            "total_documents": 100,
-            "total_chunks": 500,
-            "db_size_kb": 1024,
-        })
+        mock.return_value.stats.return_value = Ok(
+            value={
+                "collections": 2,
+                "total_documents": 100,
+                "total_chunks": 500,
+                "db_size_kb": 1024,
+            }
+        )
         with patch("sys.argv", ["cli", "stats"]):
             main()
     captured = capsys.readouterr()

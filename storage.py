@@ -519,8 +519,8 @@ class Storage:
                 if not rows:
                     return Err(error=f"Document not found: {file_path}")
                 content = "\n".join(r["content"] for r in rows)
-                return Ok(value=
-                    {
+                return Ok(
+                    value={
                         "file_path": rows[0]["file_path"],
                         "content": content,
                         "collection": rows[0]["collection"],
@@ -602,8 +602,8 @@ class Storage:
                    GROUP_CONCAT(context, '|') as contexts
                    FROM documents GROUP BY collection"""
             ).fetchall()
-            return Ok(value=
-                [
+            return Ok(
+                value=[
                     {
                         "name": r["collection"],
                         "count": r["docs"],
@@ -628,8 +628,8 @@ class Storage:
             docs = conn.execute("SELECT COUNT(DISTINCT file_path) FROM documents").fetchone()[0]
             collections = conn.execute("SELECT COUNT(DISTINCT collection) FROM documents").fetchone()[0]
             config = self._load_config()
-            return Ok(value=
-                {
+            return Ok(
+                value={
                     "total_chunks": total,
                     "total_documents": docs,
                     "collections": collections,

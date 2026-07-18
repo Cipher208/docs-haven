@@ -2,12 +2,12 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from storage import Storage
 from conflicts import ConflictDetector
+from storage import Storage
 from sync import Syncer
 from uri import URIRouter
 
@@ -210,7 +210,6 @@ class TestE2EConfig:
     """Full workflow: add repo → check config → verify persistence."""
 
     def test_config_persistence(self, e2e_storage):
-        from unittest.mock import patch, MagicMock
 
         mock_result = MagicMock()
         mock_result.returncode = 0

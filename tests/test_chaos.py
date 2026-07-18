@@ -3,7 +3,7 @@
 import sqlite3
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -69,7 +69,6 @@ class TestDiskFull:
 
     def test_save_config_handles_disk_full(self, chaos_storage):
         """_save_config should raise OSError on disk full."""
-        original_write = Path.write_text
 
         def mock_write(self, *args, **kwargs):
             raise OSError("No space left on device")

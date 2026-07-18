@@ -93,4 +93,5 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --extra test
+      - run: uv tool install pip-audit
       - run: uv run pip-audit --strict --desc --skip-editable

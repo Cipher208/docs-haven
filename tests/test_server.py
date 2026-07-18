@@ -12,8 +12,12 @@ def mock_storage():
 
     with patch("server._get_storage") as mock:
         storage = MagicMock()
-        storage.search.return_value = Ok(value=[{"score": 0.9, "collection": "test", "title": "Test", "content": "Content...", "path": "test/doc.md"}])
-        storage.stats.return_value = Ok(value={"total_documents": 10, "collections": 2, "repos": 1, "total_chunks": 50, "db_path": "", "db_size_kb": 1024})
+        storage.search.return_value = Ok(
+            value=[{"score": 0.9, "collection": "test", "title": "Test", "content": "Content...", "path": "test/doc.md"}]
+        )
+        storage.stats.return_value = Ok(
+            value={"total_documents": 10, "collections": 2, "repos": 1, "total_chunks": 50, "db_path": "", "db_size_kb": 1024}
+        )
         storage.list_collections.return_value = Ok(value=[{"name": "test", "count": 10}])
         mock.return_value = storage
         yield storage
