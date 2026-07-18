@@ -9,8 +9,9 @@ Uses Storage.search() instead of external QMD CLI.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from storage import Storage
@@ -18,12 +19,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ConflictResult:
+class ConflictResult(BaseModel):
     """Result of conflict detection for a new document."""
 
     new_title: str
-    candidates: list
+    candidates: list[dict] = Field(default_factory=list)
 
     @property
     def has_conflicts(self) -> bool:

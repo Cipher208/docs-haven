@@ -10,9 +10,10 @@ import json
 import os
 import sqlite3
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from storage import Storage
@@ -22,28 +23,24 @@ MANIFEST_FILE = "manifest.json"
 WORK_DB = "docshaven.db"  # gitignored
 
 
-@dataclass
-class ChunkEntry:
+class ChunkEntry(BaseModel):
     """Single chunk entry in manifest."""
 
-    id: str  # SHA-256 prefix (8 chars)
+    id: str  # SHA-256 prefix (16 hex chars)
     created_by: str
     created_at: str
     collections: int
     documents: int
 
 
-@dataclass
-class Manifest:
+class Manifest(BaseModel):
     """Index of all synced chunks."""
 
     version: int = 1
-    chunks: list[ChunkEntry] = field(default_factory=list)
+    chunks: list[ChunkEntry] = Field(default_factory=list)
 
     def to_dict(self) -> dict:
-        from dataclasses import asdict
-
-        return {"version": self.version, "chunks": [asdict(c) for c in self.chunks]}
+        return {"version": self.version, "chunks": [c.model_dump() for c in self.chunks]}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Manifest":
