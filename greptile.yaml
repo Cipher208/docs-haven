@@ -1,0 +1,40 @@
+# Greptile configuration for docs-haven
+
+name: docs-haven
+description: Local knowledge base for AI agents with SQLite FTS5 search
+
+ignore_patterns:
+  - "*.md"
+  - "*.json"
+  - "*.yml"
+  - "tests/"
+  - "docs/"
+  - ".github/"
+  - "dist/"
+  - "__pycache__/"
+  - ".venv/"
+
+review:
+  focus_areas:
+    - security
+    - performance
+    - error_handling
+    - type_safety
+
+  severity_threshold: medium
+
+  custom_rules:
+    - name: "Result type usage"
+      pattern: "return {\"error:"
+      message: "Use Result type (Ok/Err) instead of error dicts"
+      severity: warning
+
+    - name: "Bare except"
+      pattern: "except Exception:"
+      message: "Avoid bare except — catch specific exceptions"
+      severity: error
+
+    - name: "SQL injection risk"
+      pattern: "f\"SELECT.*{.*}\""
+      message: "Potential SQL injection — use parameterized queries"
+      severity: critical
