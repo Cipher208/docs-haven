@@ -1,52 +1,54 @@
-"""Result type for error handling — replaces error dict anti-pattern."""
+"""Result type for error handling — replaces error dict anti-pattern.
+
+Uses Pydantic v2 for validation and serialization.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Generic, NoReturn, TypeVar
+from typing import Any, Generic, NoReturn, TypeVar, Union
+
+from pydantic import BaseModel, Field
 
 T = TypeVar("T")
 
 
-@dataclass
-class Ok(Generic[T]):
+class Ok(BaseModel, Generic[T]):
     """Success result."""
 
     value: T
-
-    def is_ok(self) -> bool:
-        return True
-
-    def is_err(self) -> bool:
-        return False
+    is_ok: bool = Field(default=True, init=False)
+    is_err: bool = Field(default=False, init=False)
 
     def unwrap(self) -> T:
         return self.value
 
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        """Override to return just the value for MCP compatibility."""
+        if isinstance(self.value, BaseModel):
+            return self.value.model_dump(**kwargs)
+        if isinstance(self.value, dict):
+            return self.value
+        return {"value": self.value}
 
-@dataclass
-class Err:
+
+class Err(BaseModel):
     """Error result."""
 
     error: str
     code: str = "error"
-
-    def is_ok(self) -> bool:
-        return False
-
-    def is_err(self) -> bool:
-        return True
+    is_ok: bool = Field(default=False, init=False)
+    is_err: bool = Field(default=True, init=False)
 
     def unwrap(self) -> NoReturn:
         raise RuntimeError(self.error)
 
 
-Result = Ok | Err
+Result = Union[Ok[Any], Err]
 
 
 def ok(value: T) -> Ok[T]:
     """Create a success result."""
-    return Ok(value)
+    return Ok(value=value)
 
 
 def err(error: str, code: str = "error") -> Err:

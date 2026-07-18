@@ -19,7 +19,7 @@ mcp = FastMCP("docs-haven")
 
 def _unwrap(result) -> dict:
     """Unwrap a Result at the MCP boundary. Returns value or error dict."""
-    if result.is_err():  # type: ignore[union-attr]
+    if result.is_err:  # type: ignore[union-attr]
         return {"error": result.error}  # type: ignore[union-attr]
     return result.value  # type: ignore[union-attr]
 
@@ -213,7 +213,7 @@ async def kb_sync_export(created_by: str | None = None) -> dict:
     storage = _get_storage()
 
     result = storage.list_collections()
-    if result.is_err():  # type: ignore[union-attr]
+    if result.is_err:  # type: ignore[union-attr]
         return {"error": result.error}  # type: ignore[union-attr]
     collections_data = {c["name"]: [c] for c in result.value if c.get("name")}  # type: ignore[union-attr]
 

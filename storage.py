@@ -246,7 +246,7 @@ class Storage:
     ) -> Ok[dict] | Err:
         """Clone repo and index documents into FTS5 with chunking."""
         if not url.startswith(("https://", "http://", "git@")):
-            return Err(f"Invalid URL scheme: {url}")
+            return Err(error=f"Invalid URL scheme: {url}")
 
         name = url.rstrip("/").split("/")[-1].replace(".git", "")
         repo_dir = self.repos_dir / name
@@ -264,11 +264,11 @@ class Storage:
                     import shutil
 
                     shutil.rmtree(repo_dir, ignore_errors=True)
-                return Err(f"Clone failed: {result.stderr}")
+                return Err(error=f"Clone failed: {result.stderr}")
 
         file_mask = mask or "**/*.md"
         if ".." in file_mask:
-            return Err("File mask must not contain '..' (path traversal)")
+            return Err(error="File mask must not contain '..' (path traversal)")
         files = [f for f in repo_dir.glob(file_mask) if f.is_file() and f.stat().st_size < 500_000]
         indexed = 0
         total_chunks = 0
@@ -292,7 +292,7 @@ class Storage:
         }
         self._save_config(config)
 
-        return Ok({"name": name, "status": "added", "files_indexed": indexed, "chunks": total_chunks})
+        return Ok(value={"name": name, "status": "added", "files_indexed": indexed, "chunks": total_chunks})
 
     def _merge_hybrid(self, results: list[dict], query: str, collections: list[str] | None, limit: int) -> list[dict]:
         """Merge FTS5 results with LIKE fallback for hybrid search."""
@@ -340,7 +340,7 @@ class Storage:
         results.sort(key=lambda x: -x.get("score", 0))
         if min_score > 0:
             results = [r for r in results if r.get("score", 0) >= min_score]
-        return Ok(results[:limit])
+        return Ok(value=results[:limit])
 
     def _row_to_result(self, row: sqlite3.Row, source: str, highlighted: str | None = None, score: float | None = None) -> dict:
         """Convert a database row to a search result dict."""
@@ -446,8 +446,8 @@ class Storage:
                         (file_path, chunk),
                     ).fetchone()
                 if row:
-                    return Ok(dict(row))
-                return Err(f"Document not found: {file_path}")
+                    return Ok(value=dict(row))
+                return Err(error=f"Document not found: {file_path}")
             else:
                 if collection:
                     rows = conn.execute(
@@ -460,9 +460,9 @@ class Storage:
                         (file_path,),
                     ).fetchall()
                 if not rows:
-                    return Err(f"Document not found: {file_path}")
+                    return Err(error=f"Document not found: {file_path}")
                 content = "\n".join(r["content"] for r in rows)
-                return Ok(
+                return Ok(value=
                     {
                         "file_path": rows[0]["file_path"],
                         "content": content,
@@ -473,7 +473,7 @@ class Storage:
                 )
         except sqlite3.Error as e:
             logger.debug("Get failed: %s", e)
-            return Err(str(e))
+            return Err(error=str(e))
 
     def update_document(self, file_path: str, content: str, title: str | None = None) -> Ok[dict] | Err:
         """Update a document's content."""
@@ -490,10 +490,10 @@ class Storage:
                     (content, file_path),
                 )
             conn.commit()
-            return Ok({"status": "updated", "file_path": file_path})
+            return Ok(value={"status": "updated", "file_path": file_path})
         except sqlite3.Error as e:
             logger.debug("Update failed: %s", e)
-            return Err(str(e))
+            return Err(error=str(e))
 
     def delete_document(self, file_path: str) -> Ok[dict] | Err:
         """Delete a document by path."""
@@ -501,10 +501,10 @@ class Storage:
         try:
             conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
             conn.commit()
-            return Ok({"status": "deleted", "file_path": file_path})
+            return Ok(value={"status": "deleted", "file_path": file_path})
         except sqlite3.Error as e:
             logger.debug("Delete failed: %s", e)
-            return Err(str(e))
+            return Err(error=str(e))
 
     def record_judgment(self, new_id: str, candidate_id: str, judgment: str) -> Ok[dict] | Err:
         """Record a conflict judgment."""
@@ -515,10 +515,10 @@ class Storage:
                 (new_id, candidate_id, judgment),
             )
             conn.commit()
-            return Ok({"status": "recorded", "new_id": new_id, "candidate_id": candidate_id, "judgment": judgment})
+            return Ok(value={"status": "recorded", "new_id": new_id, "candidate_id": candidate_id, "judgment": judgment})
         except sqlite3.Error as e:
             logger.warning("Failed to record judgment: %s", e)
-            return Err(str(e))
+            return Err(error=str(e))
 
     def bulk_insert(self, documents: list[dict]) -> Ok[int] | Err:
         """Bulk insert documents. Returns count of inserted documents."""
@@ -530,10 +530,10 @@ class Storage:
                     (doc.get("collection", ""), doc.get("path", ""), doc.get("content", ""), doc.get("title", "")),
                 )
             conn.commit()
-            return Ok(len(documents))
+            return Ok(value=len(documents))
         except sqlite3.Error as e:
             logger.debug("Bulk insert failed: %s", e)
-            return Err(str(e))
+            return Err(error=str(e))
 
     def list_collections(self) -> Ok[list[dict]] | Err:
         """List all collections with document counts."""
@@ -545,7 +545,7 @@ class Storage:
                    GROUP_CONCAT(context, '|') as contexts
                    FROM documents GROUP BY collection"""
             ).fetchall()
-            return Ok(
+            return Ok(value=
                 [
                     {
                         "name": r["collection"],
@@ -561,7 +561,7 @@ class Storage:
             )
         except sqlite3.Error as e:
             logger.debug("List collections failed: %s", e)
-            return Err(str(e))
+            return Err(error=str(e))
 
     def stats(self) -> Ok[dict] | Err:
         """Get database statistics."""
@@ -571,7 +571,7 @@ class Storage:
             docs = conn.execute("SELECT COUNT(DISTINCT file_path) FROM documents").fetchone()[0]
             collections = conn.execute("SELECT COUNT(DISTINCT collection) FROM documents").fetchone()[0]
             config = self._load_config()
-            return Ok(
+            return Ok(value=
                 {
                     "total_chunks": total,
                     "total_documents": docs,
@@ -583,7 +583,7 @@ class Storage:
             )
         except (sqlite3.Error, OSError) as e:
             logger.debug("Stats failed: %s", e)
-            return Err(str(e))
+            return Err(error=str(e))
 
     def _load_config(self) -> dict:
         if self.config_path.exists():
@@ -609,12 +609,12 @@ class Storage:
         import re
 
         if not re.match(r"^[a-zA-Z0-9_-]+$", collection):
-            return Err(f"Invalid collection name: {collection}")
+            return Err(error=f"Invalid collection name: {collection}")
         conn = self._get_conn()
         try:
             repo_dir = self.repos_dir / collection
             if not repo_dir.exists():
-                return Ok([])
+                return Ok(value=[])
 
             stale = []
             rows = conn.execute(
@@ -633,7 +633,7 @@ class Storage:
                 else:
                     stale.append({"file_path": row["file_path"], "reason": "file_deleted"})
 
-            return Ok(stale)
+            return Ok(value=stale)
         except (sqlite3.Error, OSError) as e:
             logger.debug("Stale check failed: %s", e)
-            return Err(str(e))
+            return Err(error=str(e))

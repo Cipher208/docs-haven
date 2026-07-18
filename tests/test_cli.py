@@ -11,7 +11,7 @@ from result import Ok
 def test_cli_search(monkeypatch, capsys):
     """Test search command outputs formatted results."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.search.return_value = Ok([{"score": 0.9, "collection": "test", "title": "Test Doc", "content": "Content here..."}])
+        mock.return_value.search.return_value = Ok(value=[{"score": 0.9, "collection": "test", "title": "Test Doc", "content": "Content here..."}])
         with patch("sys.argv", ["cli", "search", "test query"]):
             main()
     captured = capsys.readouterr()
@@ -24,7 +24,7 @@ def test_cli_search(monkeypatch, capsys):
 def test_cli_search_empty(capsys):
     """Test search with no results."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.search.return_value = Ok([])
+        mock.return_value.search.return_value = Ok(value=[])
         with patch("sys.argv", ["cli", "search", "nothing"]):
             main()
     captured = capsys.readouterr()
@@ -34,17 +34,15 @@ def test_cli_search_empty(capsys):
 def test_cli_search_explain(capsys):
     """Test search with explain flag."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.search.return_value = Ok(
-            [
-                {
-                    "score": 0.85,
-                    "collection": "test",
-                    "title": "Test",
-                    "content": "Content",
-                    "explain": {"base_score": 0.7, "type_boost": 0.15, "source": "fts5"},
-                }
-            ]
-        )
+        mock.return_value.search.return_value = Ok(value=[
+            {
+                "score": 0.85,
+                "collection": "test",
+                "title": "Test",
+                "content": "Content",
+                "explain": {"base_score": 0.7, "type_boost": 0.15, "source": "fts5"},
+            }
+        ])
         with patch("sys.argv", ["cli", "search", "test", "--explain"]):
             main()
     captured = capsys.readouterr()
@@ -55,14 +53,12 @@ def test_cli_search_explain(capsys):
 def test_cli_stats(capsys):
     """Test stats command outputs statistics."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.stats.return_value = Ok(
-            {
-                "collections": 2,
-                "total_documents": 100,
-                "total_chunks": 500,
-                "db_size_kb": 1024,
-            }
-        )
+        mock.return_value.stats.return_value = Ok(value={
+            "collections": 2,
+            "total_documents": 100,
+            "total_chunks": 500,
+            "db_size_kb": 1024,
+        })
         with patch("sys.argv", ["cli", "stats"]):
             main()
     captured = capsys.readouterr()
@@ -75,7 +71,7 @@ def test_cli_stats(capsys):
 def test_cli_list(capsys):
     """Test list command outputs collections."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.list_collections.return_value = Ok([{"name": "core__fastapi", "count": 10, "chunks": 25}])
+        mock.return_value.list_collections.return_value = Ok(value=[{"name": "core__fastapi", "count": 10, "chunks": 25}])
         with patch("sys.argv", ["cli", "list"]):
             main()
     captured = capsys.readouterr()
@@ -95,7 +91,7 @@ def test_cli_search_error():
     from result import Err
 
     with patch("cli.get_storage") as mock:
-        mock.return_value.search.return_value = Err("Database locked")
+        mock.return_value.search.return_value = Err(error="Database locked")
         with patch("sys.argv", ["cli", "search", "test"]):
             with pytest.raises(SystemExit):
                 main()

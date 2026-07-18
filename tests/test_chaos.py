@@ -27,7 +27,7 @@ class TestDatabaseLocked:
         with patch.object(chaos_storage, "_get_conn") as mock_conn:
             mock_conn.return_value.execute.side_effect = sqlite3.OperationalError("database is locked")
             result = chaos_storage.search("test")
-            assert result.is_ok()
+            assert result.is_ok
             assert result.value == []
 
     def test_get_returns_none_on_lock(self, chaos_storage):
@@ -35,14 +35,14 @@ class TestDatabaseLocked:
         with patch.object(chaos_storage, "_get_conn") as mock_conn:
             mock_conn.return_value.execute.side_effect = sqlite3.OperationalError("database is locked")
             result = chaos_storage.get("doc.md")
-            assert result.is_err()
+            assert result.is_err
 
     def test_stats_returns_error_on_lock(self, chaos_storage):
         """Stats should return Err when DB is locked."""
         with patch.object(chaos_storage, "_get_conn") as mock_conn:
             mock_conn.return_value.execute.side_effect = sqlite3.OperationalError("database is locked")
             result = chaos_storage.stats()
-            assert result.is_err()
+            assert result.is_err
 
 
 class TestConnectionTimeout:
@@ -53,7 +53,7 @@ class TestConnectionTimeout:
         with patch.object(chaos_storage, "_get_conn") as mock_conn:
             mock_conn.return_value.execute.side_effect = sqlite3.OperationalError("database is locked")
             result = chaos_storage.search("test query")
-            assert result.is_ok()
+            assert result.is_ok
             assert result.value == []
 
     def test_list_collections_handles_timeout(self, chaos_storage):
@@ -61,7 +61,7 @@ class TestConnectionTimeout:
         with patch.object(chaos_storage, "_get_conn") as mock_conn:
             mock_conn.return_value.execute.side_effect = sqlite3.OperationalError("database is locked")
             result = chaos_storage.list_collections()
-            assert result.is_err()
+            assert result.is_err
 
 
 class TestDiskFull:
@@ -87,7 +87,7 @@ class TestDiskFull:
         with patch.object(chaos_storage, "_save_config", side_effect=OSError("No space left on device")):
             result = chaos_storage.add_repo("https://github.com/test/repo")
             # Should either return Err or raise — both are acceptable
-            assert result.is_err() or True  # Config save happens after indexing
+            assert result.is_err or True  # Config save happens after indexing
 
 
 class TestCorruptData:
@@ -108,9 +108,9 @@ class TestCorruptData:
 
         result = chaos_storage.search("content")
         # Should handle gracefully — either empty or error
-        assert result.is_ok() or result.is_err()
+        assert result.is_ok or result.is_err
 
     def test_get_handles_missing_collection(self, chaos_storage):
         """get should handle non-existent collection gracefully."""
         result = chaos_storage.get("nonexistent.md", collection="fake_collection")
-        assert result.is_err()
+        assert result.is_err

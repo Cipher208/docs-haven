@@ -12,9 +12,9 @@ def mock_storage():
 
     with patch("server._get_storage") as mock:
         storage = MagicMock()
-        storage.search.return_value = Ok([{"score": 0.9, "collection": "test", "title": "Test", "content": "Content...", "path": "test/doc.md"}])
-        storage.stats.return_value = Ok({"total_documents": 10, "collections": 2, "repos": 1, "total_chunks": 50, "db_path": "", "db_size_kb": 1024})
-        storage.list_collections.return_value = Ok([{"name": "test", "count": 10}])
+        storage.search.return_value = Ok(value=[{"score": 0.9, "collection": "test", "title": "Test", "content": "Content...", "path": "test/doc.md"}])
+        storage.stats.return_value = Ok(value={"total_documents": 10, "collections": 2, "repos": 1, "total_chunks": 50, "db_path": "", "db_size_kb": 1024})
+        storage.list_collections.return_value = Ok(value=[{"name": "test", "count": 10}])
         mock.return_value = storage
         yield storage
 
@@ -79,7 +79,7 @@ async def test_kb_update(mock_storage):
     from result import Ok
     from server import kb_update
 
-    mock_storage.update_document.return_value = Ok({"status": "updated", "file_path": "test/doc.md"})
+    mock_storage.update_document.return_value = Ok(value={"status": "updated", "file_path": "test/doc.md"})
     result = await kb_update("test/doc.md", "new content", title="New Title")
     assert result["status"] == "updated"
     assert result["file_path"] == "test/doc.md"
@@ -91,7 +91,7 @@ async def test_kb_delete(mock_storage):
     from result import Ok
     from server import kb_delete
 
-    mock_storage.delete_document.return_value = Ok({"status": "deleted", "file_path": "test/doc.md"})
+    mock_storage.delete_document.return_value = Ok(value={"status": "deleted", "file_path": "test/doc.md"})
     result = await kb_delete("test/doc.md")
     assert result["status"] == "deleted"
     assert result["file_path"] == "test/doc.md"
@@ -125,6 +125,6 @@ async def test_kb_get_nonexistent(mock_storage):
     from result import Err
     from server import kb_get
 
-    mock_storage.get.return_value = Err("Document not found")
+    mock_storage.get.return_value = Err(error="Document not found")
     result = await kb_get("nonexistent.md")
     assert "error" in result

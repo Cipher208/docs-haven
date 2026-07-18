@@ -93,7 +93,7 @@ class ConflictDetector:
             strategy="fts",
         )
 
-        if result.is_err():
+        if result.is_err:
             return []
 
         # Filter by score threshold and exclude exact matches
@@ -130,6 +130,6 @@ class ConflictDetector:
 
         storage = self._get_storage()
         result = storage.record_judgment(new_id, candidate_id, judgment)
-        if result.is_err():  # type: ignore[union-attr]
+        if result.is_err:  # type: ignore[union-attr]
             return {"error": result.error}  # type: ignore[union-attr]
         return result.value  # type: ignore[union-attr]

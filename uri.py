@@ -98,7 +98,7 @@ class URIRouter:
             # Wildcard: search all collections in domain
             prefix = f"{uri.domain}__"
             result = self.storage.list_collections()
-            if result.is_err():
+            if result.is_err:
                 return []
             collections = [c["name"] for c in result.value if c.get("name", "").startswith(prefix)]
             if not collections:
@@ -113,21 +113,21 @@ class URIRouter:
                 collections=collections,
                 limit=limit,
             )
-            return result.value if result.is_ok() else []
+            return result.value if result.is_ok else []
 
         result = self.storage.search(
             query=uri.path.split("/")[-1],
             collections=[collection],
             limit=limit,
         )
-        return result.value if result.is_ok() else []
+        return result.value if result.is_ok else []
 
     def list_by_domain(self, domain: str) -> list[dict]:
         """List all URIs in a domain."""
         if domain not in VALID_DOMAINS:
             return [{"error": f"Unknown domain: {domain}"}]
         result = self.storage.list_collections()
-        if result.is_err():
+        if result.is_err:
             return []
         collections = result.value
         prefix = f"{domain}__"
@@ -140,7 +140,7 @@ class URIRouter:
     def list_all_domains(self) -> dict:
         """List all domains with their collection counts."""
         result = self.storage.list_collections()
-        if result.is_err():
+        if result.is_err:
             return {}
         collections = result.value
         domains: dict[str, int] = {}

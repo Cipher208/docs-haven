@@ -15,7 +15,7 @@ def cmd_search(args: argparse.Namespace) -> None:
     """Search the knowledge base."""
     storage = get_storage()
     result = storage.search(args.query, limit=args.limit, explain=getattr(args, "explain", False))
-    if result.is_err():  # type: ignore[union-attr]
+    if result.is_err:  # type: ignore[union-attr]
         print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
     results = result.value  # type: ignore[union-attr]
@@ -36,7 +36,7 @@ def cmd_add(args: argparse.Namespace) -> None:
     """Add a repository."""
     storage = get_storage()
     result = storage.add_repo(args.url, description=args.description)
-    if result.is_err():  # type: ignore[union-attr]
+    if result.is_err:  # type: ignore[union-attr]
         print(f"Error (Add repo): {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
     data = result.value  # type: ignore[union-attr]
@@ -47,7 +47,7 @@ def cmd_stats(args: argparse.Namespace) -> None:
     """Show knowledge base statistics."""
     storage = get_storage()
     result = storage.stats()
-    if result.is_err():  # type: ignore[union-attr]
+    if result.is_err:  # type: ignore[union-attr]
         print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
     stats = result.value  # type: ignore[union-attr]
@@ -80,7 +80,7 @@ def cmd_list(args: argparse.Namespace) -> None:
     """List all collections."""
     storage = get_storage()
     result = storage.list_collections()
-    if result.is_err():  # type: ignore[union-attr]
+    if result.is_err:  # type: ignore[union-attr]
         print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
     for c in result.value:  # type: ignore[union-attr]
@@ -91,7 +91,7 @@ def cmd_delete(args: argparse.Namespace) -> None:
     """Delete a document."""
     storage = get_storage()
     result = storage.delete_document(args.file_path)
-    if result.is_err():  # type: ignore[union-attr]
+    if result.is_err:  # type: ignore[union-attr]
         print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
     print(f"Deleted: {result.value['file_path']}")  # type: ignore[union-attr]

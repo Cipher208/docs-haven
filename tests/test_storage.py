@@ -89,14 +89,14 @@ class TestStorage:
 
     def test_stats_empty(self, tmp_storage):
         result = tmp_storage.stats()
-        assert result.is_ok()
+        assert result.is_ok
         stats = result.value
         assert stats["total_documents"] == 0
         assert stats["collections"] == 0
 
     def test_list_collections_empty(self, tmp_storage):
         result = tmp_storage.list_collections()
-        assert result.is_ok()
+        assert result.is_ok
         assert result.value == []
 
     def test_list_collections_domain(self, tmp_storage):
@@ -112,7 +112,7 @@ class TestStorage:
         conn.commit()
 
         result = tmp_storage.list_collections()
-        assert result.is_ok()
+        assert result.is_ok
         collections = result.value
         by_name = {c["name"]: c for c in collections}
         assert by_name["core__fastapi"]["domain"] == "core"
@@ -120,11 +120,11 @@ class TestStorage:
 
     def test_get_nonexistent(self, tmp_storage):
         result = tmp_storage.get("nonexistent.md")
-        assert result.is_err()
+        assert result.is_err
 
     def test_search_empty(self, tmp_storage):
         result = tmp_storage.search("test query")
-        assert result.is_ok()
+        assert result.is_ok
         assert result.value == []
 
 
@@ -143,7 +143,7 @@ class TestStorageSearch:
         conn.commit()
 
         result = tmp_storage.search("FastAPI")
-        assert result.is_ok()
+        assert result.is_ok
         results = result.value
         assert len(results) >= 1
         assert results[0]["title"] == "FastAPI Guide"
@@ -162,7 +162,7 @@ class TestStorageSearch:
         conn.commit()
 
         result = tmp_storage.search("tutorial", collections=["fastapi"])
-        assert result.is_ok()
+        assert result.is_ok
         results = result.value
         assert all(r["collection"] == "fastapi" for r in results)
 
@@ -175,7 +175,7 @@ class TestStorageSearch:
         conn.commit()
 
         result = tmp_storage.get("README.md")
-        assert result.is_ok()
+        assert result.is_ok
         doc = result.value
         assert "Test Repo" in doc["content"]
 
@@ -188,7 +188,7 @@ class TestStorageSearch:
         conn.commit()
 
         result = tmp_storage.search("FastAPI dependency injection", strategy="hybrid")
-        assert result.is_ok()
+        assert result.is_ok
         results = result.value
         assert len(results) >= 1
         assert results[0]["score"] > 0
@@ -202,7 +202,7 @@ class TestStorageSearch:
         conn.commit()
 
         result = tmp_storage.search("FastAPI", explain=True)
-        assert result.is_ok()
+        assert result.is_ok
         results = result.value
         assert len(results) > 0
         r = results[0]
@@ -223,7 +223,7 @@ class TestStorageSearch:
         conn.commit()
 
         result = tmp_storage.search("Test")
-        assert result.is_ok()
+        assert result.is_ok
         results = result.value
         assert len(results) > 0
         assert "explain" not in results[0]
@@ -240,7 +240,7 @@ class TestStorageSearch:
         conn.commit()
 
         result = tmp_storage.check_stale("test")
-        assert result.is_ok()
+        assert result.is_ok
         stale = result.value
         assert len(stale) == 1
         assert stale[0]["reason"] == "file_deleted"
@@ -259,14 +259,14 @@ class TestStorageSearch:
         conn.commit()
 
         result = tmp_storage.check_stale("test")
-        assert result.is_ok()
+        assert result.is_ok
         stale = result.value
         assert len(stale) == 1
         assert stale[0]["reason"] == "symlink_skipped"
 
     def test_search_empty_query(self, tmp_storage):
         result = tmp_storage.search("")
-        assert result.is_ok()
+        assert result.is_ok
         assert result.value == []
 
     def test_search_sql_injection(self, tmp_storage):
@@ -277,7 +277,7 @@ class TestStorageSearch:
         )
         conn.commit()
         result = tmp_storage.search('"; DROP TABLE documents; --')
-        assert result.is_ok()
+        assert result.is_ok
         assert isinstance(result.value, list)
 
     def test_search_limit_zero(self, tmp_storage):
@@ -288,7 +288,7 @@ class TestStorageSearch:
         )
         conn.commit()
         result = tmp_storage.search("Content", limit=0)
-        assert result.is_ok()
+        assert result.is_ok
         assert result.value == []
 
     def test_auto_strategy_boundary(self):
@@ -309,10 +309,10 @@ class TestUpdateDelete:
         conn.commit()
 
         result = tmp_storage.update_document("doc.md", "new content", title="New Title")
-        assert result.is_ok()
+        assert result.is_ok
 
         doc = tmp_storage.get("doc.md")
-        assert doc.is_ok()
+        assert doc.is_ok
         assert doc.value["content"] == "new content"
         assert doc.value["title"] == "New Title"
 
@@ -325,10 +325,10 @@ class TestUpdateDelete:
         conn.commit()
 
         result = tmp_storage.update_document("doc.md", "new content")
-        assert result.is_ok()
+        assert result.is_ok
 
         doc = tmp_storage.get("doc.md")
-        assert doc.is_ok()
+        assert doc.is_ok
         assert doc.value["content"] == "new content"
         assert doc.value["title"] == "Title"
 
@@ -341,10 +341,10 @@ class TestUpdateDelete:
         conn.commit()
 
         result = tmp_storage.delete_document("doc.md")
-        assert result.is_ok()
+        assert result.is_ok
 
         doc = tmp_storage.get("doc.md")
-        assert doc.is_err()
+        assert doc.is_err
 
     def test_check_stale_content_changed(self, tmp_storage):
         import hashlib
@@ -365,14 +365,14 @@ class TestUpdateDelete:
         (repo_dir / "doc.md").write_text("modified content")
 
         result = tmp_storage.check_stale("test")
-        assert result.is_ok()
+        assert result.is_ok
         stale = result.value
         assert len(stale) == 1
         assert stale[0]["reason"] == "content_changed"
 
     def test_check_stale_nonexistent_collection(self, tmp_storage):
         result = tmp_storage.check_stale("nonexistent")
-        assert result.is_ok()
+        assert result.is_ok
         assert result.value == []
 
     def test_stats_with_data(self, tmp_storage):
@@ -384,7 +384,7 @@ class TestUpdateDelete:
         conn.commit()
 
         result = tmp_storage.stats()
-        assert result.is_ok()
+        assert result.is_ok
         stats = result.value
         assert stats["total_documents"] == 1
         assert stats["total_chunks"] == 1
@@ -393,7 +393,7 @@ class TestUpdateDelete:
 
     def test_add_repo_invalid_url(self, tmp_storage):
         result = tmp_storage.add_repo("ftp://invalid.com/repo")
-        assert result.is_err()
+        assert result.is_err
         assert "Invalid URL scheme" in result.error
 
     def test_add_repo_path_traversal_mask(self, tmp_storage):
@@ -402,7 +402,7 @@ class TestUpdateDelete:
         repo_dir.mkdir()
 
         result = tmp_storage.add_repo("https://github.com/test/repo", mask="../../etc/passwd")
-        assert result.is_err()
+        assert result.is_err
         assert "path traversal" in result.error.lower()
 
     def test_add_repo_with_mocked_clone(self, tmp_storage):
@@ -419,7 +419,7 @@ class TestUpdateDelete:
             (repo_dir / "README.md").write_text("# Test\nContent here")
 
             result = tmp_storage.add_repo("https://github.com/test/test-repo", description="Test repo")
-            assert result.is_ok()
+            assert result.is_ok
             assert result.value["name"] == "test-repo"
             assert result.value["files_indexed"] == 1
 
@@ -432,7 +432,7 @@ class TestUpdateDelete:
 
         with patch("storage.subprocess.run", return_value=mock_result):
             result = tmp_storage.add_repo("https://github.com/nonexistent/repo")
-            assert result.is_err()
+            assert result.is_err
             assert "Clone failed" in result.error
 
     def test_get_with_chunk(self, tmp_storage):
@@ -448,7 +448,7 @@ class TestUpdateDelete:
         conn.commit()
 
         result = tmp_storage.get("doc.md", chunk=0)
-        assert result.is_ok()
+        assert result.is_ok
         assert result.value["content"] == "Chunk 0 content"
         assert result.value["chunk_index"] == 0
 
@@ -465,7 +465,7 @@ class TestUpdateDelete:
         conn.commit()
 
         result = tmp_storage.get("guide.md", collection="core__fastapi")
-        assert result.is_ok()
+        assert result.is_ok
         assert result.value["collection"] == "core__fastapi"
 
     def test_get_multi_chunk_assembly(self, tmp_storage):
@@ -481,7 +481,7 @@ class TestUpdateDelete:
         conn.commit()
 
         result = tmp_storage.get("doc.md")
-        assert result.is_ok()
+        assert result.is_ok
         assert "First part." in result.value["content"]
         assert "Second part." in result.value["content"]
         assert result.value["chunks"] == 2
