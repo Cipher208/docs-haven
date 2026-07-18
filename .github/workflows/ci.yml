@@ -22,11 +22,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install ruff
+          version: "latest"
+      - run: uv tool install ruff
       - run: ruff check .
       - run: ruff format --check .
 
@@ -37,12 +36,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install -e ".[test]" mypy
-      - run: python -m mypy uri.py storage.py sync.py conflicts.py server.py --ignore-missing-imports
+          version: "latest"
+      - run: uv sync --extra test
+      - run: uv pip install mypy
+      - run: uv run python -m mypy uri.py storage.py sync.py conflicts.py server.py --ignore-missing-imports
 
   test:
     runs-on: ubuntu-latest
@@ -55,12 +54,17 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: astral-sh/setup-uv@v5
         with:
+          version: "latest"
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
-      - run: pip install -e ".[test]"
-      - run: pytest tests/ -v --tb=long --timeout=30
+      - run: uv sync --extra test
+      - run: uv run pytest tests/ -v --tb=long --timeout=30 --cov --cov-report=xml
+      - uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
+        if: matrix.python-version == '3.12'
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
 
   build:
     runs-on: ubuntu-latest
@@ -69,12 +73,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install build
-      - run: python -m build
+          version: "latest"
+      - run: uv build
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
@@ -87,9 +89,8 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install pip-audit
-      - run: pip-audit --strict --desc --skip-editable
+          version: "latest"
+      - run: uv sync --extra test
+      - run: uv run pip-audit --strict --desc --skip-editable
