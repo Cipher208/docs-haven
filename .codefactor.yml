@@ -1,0 +1,28 @@
+# CodeFactor configuration for docs-haven
+
+version: "1.0"
+
+analysis:
+  languages:
+    python:
+      enabled: true
+      min_python_version: "3.10"
+      max_complexity: 15
+      max_function_length: 50
+      max_file_length: 600
+      ignore_patterns:
+        - "tests/"
+        - "docs/"
+        - "benchmark.py"
+
+  security:
+    enabled: true
+    severity_threshold: "medium"
+
+  code_smells:
+    enabled: true
+    max_duplicated_lines: 10
+
+  technical_debt:
+    enabled: true
+    max_debt_ratio: 5.0

@@ -1,0 +1,28 @@
+# CodeRabbit configuration for docs-haven
+
+reviews:
+  path_instructions: |
+    This is a Python knowledge base project for AI agents.
+    - Storage layer uses SQLite FTS5 with Result type (Ok/Err)
+    - All Storage methods return Ok[dict] | Err
+    - MCP tools unwrap Result at the boundary
+    - Tests use pytest with real SQLite (not mocks)
+
+  review_profile: assertive
+  collapse_walkthrough: false
+
+  tools:
+    ruff:
+      enabled: true
+    mypy:
+      enabled: true
+    pytest:
+      enabled: true
+
+  path_filters:
+    exclude:
+      - "*.md"
+      - "*.json"
+      - "*.yml"
+      - "tests/"
+      - "docs/"
