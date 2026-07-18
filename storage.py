@@ -12,6 +12,7 @@ Features:
 import hashlib
 import json
 import logging
+import re
 import sqlite3
 import subprocess
 import threading
@@ -23,6 +24,55 @@ logger = logging.getLogger(__name__)
 
 # Valid URI domains for collection naming (matches uri.py VALID_DOMAINS)
 _VALID_DOMAINS = {"core", "ref", "guide", "lib", "src", "test", "note"}
+
+# ── Validation ──────────────────────────────────────────────────────────────
+
+# Max query length for FTS5 (prevents memory exhaustion)
+_MAX_QUERY_LENGTH = 10000
+# Max tokens in FTS5 query
+_MAX_FTS5_TOKENS = 100
+# Max search result limit
+_MAX_SEARCH_LIMIT = 1000
+# Valid URL schemes for git clone
+_VALID_URL_SCHEMES = ("https://", "http://", "git@")
+# Pattern for safe collection names (alphanumeric + underscore + hyphen)
+_COLLECTION_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def validate_url(url: str) -> str | None:
+    """Validate URL for git clone. Returns error message or None."""
+    if not url.startswith(_VALID_URL_SCHEMES):
+        return f"Invalid URL scheme: {url}"
+    if len(url) > 2048:
+        return "URL too long (max 2048 chars)"
+    return None
+
+
+def validate_collection(name: str) -> str | None:
+    """Validate collection name. Returns error message or None."""
+    if not name:
+        return "Collection name cannot be empty"
+    if len(name) > 255:
+        return "Collection name too long (max 255 chars)"
+    if not _COLLECTION_PATTERN.match(name):
+        return f"Invalid collection name: {name}"
+    return None
+
+
+def validate_query(query: str) -> str | None:
+    """Validate search query. Returns error message or None."""
+    if len(query) > _MAX_QUERY_LENGTH:
+        return f"Query too long (max {_MAX_QUERY_LENGTH} chars)"
+    return None
+
+
+def validate_file_mask(mask: str) -> str | None:
+    """Validate file mask for path traversal. Returns error message or None."""
+    if ".." in mask:
+        return "File mask must not contain '..' (path traversal)"
+    if mask.startswith("/"):
+        return "File mask must not start with '/'"
+    return None
 
 
 # ── Chunking ────────────────────────────────────────────────────────────────
@@ -245,8 +295,9 @@ class Storage:
         mask: str | None = None,
     ) -> Ok[dict] | Err:
         """Clone repo and index documents into FTS5 with chunking."""
-        if not url.startswith(("https://", "http://", "git@")):
-            return Err(error=f"Invalid URL scheme: {url}")
+        url_error = validate_url(url)
+        if url_error:
+            return Err(error=url_error)
 
         name = url.rstrip("/").split("/")[-1].replace(".git", "")
         repo_dir = self.repos_dir / name
@@ -267,8 +318,9 @@ class Storage:
                 return Err(error=f"Clone failed: {result.stderr}")
 
         file_mask = mask or "**/*.md"
-        if ".." in file_mask:
-            return Err(error="File mask must not contain '..' (path traversal)")
+        mask_error = validate_file_mask(file_mask)
+        if mask_error:
+            return Err(error=mask_error)
         files = [f for f in repo_dir.glob(file_mask) if f.is_file() and f.stat().st_size < 500_000]
         indexed = 0
         total_chunks = 0
@@ -315,6 +367,11 @@ class Storage:
         min_score: float = 0.0,
     ) -> Ok[list[dict]] | Err:
         """Search with auto strategy selection."""
+        query_error = validate_query(query)
+        if query_error:
+            return Err(error=query_error)
+        if limit > _MAX_SEARCH_LIMIT:
+            limit = _MAX_SEARCH_LIMIT
         if strategy is None:
             strategy = auto_strategy(query)
 
@@ -606,10 +663,9 @@ class Storage:
 
     def check_stale(self, collection: str) -> Ok[list[dict]] | Err:
         """Check for stale documents by comparing content hashes."""
-        import re
-
-        if not re.match(r"^[a-zA-Z0-9_-]+$", collection):
-            return Err(error=f"Invalid collection name: {collection}")
+        coll_error = validate_collection(collection)
+        if coll_error:
+            return Err(error=coll_error)
         conn = self._get_conn()
         try:
             repo_dir = self.repos_dir / collection
