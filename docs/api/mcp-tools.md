@@ -200,4 +200,4 @@ Record a judgment on a conflict candidate.
 - `candidate_id` (string, required): ID of the conflicting document
 - `judgment` (string, required): One of "supersedes", "conflicts_with", "unrelated"
 
-**Note:** Judgments are ephemeral (not persisted to database).
+**Note:** Judgments are persisted to the `conflict_judgments` table.

@@ -13,7 +13,10 @@ result = syncer.export(
     collections_data={"fastapi": docs, "sqlalchemy": docs},
     created_by="alice",
 )
-print(f"Exported {result['documents']} documents in chunk {result['chunk_id']}")
+if result.get("isEmpty"):
+    print("No new data to export")
+else:
+    print(f"Exported {result['documents']} documents in chunk {result['chunk_id']}")
 ```
 
 ## Import (Machine B)
@@ -33,7 +36,7 @@ print(f"Chunks: {status['local_chunks']}, Size: {status['manifest_size']} bytes"
 
 ## How It Works
 
-1. Each export creates a NEW `.jsonl.gz` chunk (never modifies old ones)
+1. Each export creates a NEW `.json.gz` chunk (never modifies old ones)
 2. Manifest tracks all chunks (small, merge-friendly)
 3. Import reads chunks and applies new data
 4. No merge conflicts — each machine creates independent chunks

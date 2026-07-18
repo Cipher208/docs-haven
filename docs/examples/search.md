@@ -8,34 +8,50 @@ from pathlib import Path
 
 storage = Storage(Path.home() / ".docshaven")
 
-# Search across all collections
-results = storage.search("dependency injection")
-for r in results:
-    print(f"{r['score']:.2f} {r['title']}")
+# Search across all collections — returns Ok[list[dict]] | Err
+result = storage.search("dependency injection")
+if result.is_ok():
+    for r in result.value:
+        print(f"{r['score']:.2f} {r['title']}")
+else:
+    print(f"Error: {result.error}")
 ```
 
 ## Filtered Search
 
 ```python
 # Search within specific collections
-results = storage.search(
+result = storage.search(
     "async",
     collections=["fastapi", "sqlalchemy"],
     limit=5,
 )
+if result.is_ok():
+    for r in result.value:
+        print(f"{r['score']:.2f} {r['title']}")
+```
+
+## With Score Explanation
+
+```python
+# Get scoring breakdown for each result
+result = storage.search("fastapi", explain=True)
+if result.is_ok():
+    for r in result.value:
+        print(f"{r['title']}: base={r['explain']['base_score']}, boost={r['explain']['type_boost']}")
 ```
 
 ## Strategy Selection
 
 ```python
 # Auto strategy (recommended)
-results = storage.search("fastapi middleware", strategy="auto")
+result = storage.search("fastapi middleware", strategy="auto")
 
 # Force FTS-only (faster, good for short queries)
-results = storage.search("fastapi", strategy="fts")
+result = storage.search("fastapi", strategy="fts")
 
 # Force hybrid (better recall, slower)
-results = storage.search("how to use dependency injection", strategy="hybrid")
+result = storage.search("how to use dependency injection", strategy="hybrid")
 ```
 
 ## URI Search

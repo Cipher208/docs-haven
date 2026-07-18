@@ -9,7 +9,10 @@ docs-haven/
 ├── uri.py           # URI routing — domain://path organization
 ├── sync.py          # Git sync — compressed chunks for multi-machine
 ├── conflicts.py     # Conflict detection — find contradictions
-└── tests/           # pytest test suite
+├── result.py        # Ok/Err Result type — error handling pattern
+├── cli.py           # CLI interface — 7 commands
+├── benchmark.py     # Performance benchmarks
+└── tests/           # pytest test suite (88 tests)
 ```
 
 ## Data Flow
@@ -19,6 +22,24 @@ User/Agent → MCP Tools → server.py → storage.py → SQLite FTS5
                                     → uri.py → collection mapping
                                     → sync.py → compressed chunks
                                     → conflicts.py → contradiction detection
+
+All Storage methods return Ok[dict] | Err (Result type from result.py)
+Server tools unwrap Result at MCP boundary
+```
+
+## Result Type
+
+All Storage methods return `Ok[dict] | Err` or `Ok[list[dict]] | Err`.
+
+```python
+from result import Ok, Err
+
+result = storage.search("query")
+if result.is_ok():
+    for r in result.value:
+        print(r["title"])
+else:
+    print(f"Error: {result.error}")
 ```
 
 ## Storage Layer
@@ -27,6 +48,7 @@ SQLite with FTS5 full-text search. No external dependencies.
 
 - **documents** table: stores document chunks with metadata
 - **documents_fts** virtual table: FTS5 index for BM25 search
+- **conflict_judgments** table: persists conflict judgments
 - **triggers**: keep FTS in sync with document changes
 
 ### Search Strategies
@@ -61,8 +83,8 @@ Each sync creates a NEW compressed chunk. Never modifies old files.
 .docshaven-sync/
 ├── manifest.json          # Index (small, merge-friendly)
 └── chunks/
-    ├── a3f8c1d2.jsonl.gz  # Chunk 1
-    └── b7d2e4f1.jsonl.gz  # Chunk 2
+    ├── a3f8c1d2.json.gz  # Chunk 1
+    └── b7d2e4f1.json.gz  # Chunk 2
 ```
 
 Pattern from engram.

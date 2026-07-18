@@ -42,9 +42,10 @@ class TestChunking:
         text = "word " * 500  # ~2500 chars
         chunks = chunk_text(text, chunk_size=500, overlap=100)
         assert len(chunks) > 1
-        # All content should be covered
+        # All content should be preserved across chunks
         combined = " ".join(chunks)
         assert "word" in combined
+        assert len(combined) >= len(text) - 100  # Allow for overlap trimming
 
     def test_empty_text(self):
         chunks = chunk_text("")
@@ -71,7 +72,7 @@ class TestTypeBoost:
     def test_api_query_boosts_api_doc(self):
         result = {"title": "API endpoints", "content": "GET /users"}
         boost = type_boost("api endpoint", result)
-        assert boost > 0
+        assert boost == 0.15
 
     def test_unrelated_query_no_boost(self):
         result = {"title": "Random doc", "content": "Some content"}
@@ -206,10 +207,12 @@ class TestStorageSearch:
         assert len(results) > 0
         r = results[0]
         assert "explain" in r
-        assert "base_score" in r["explain"]
-        assert "type_boost" in r["explain"]
-        assert "final_score" in r["explain"]
-        assert "source" in r["explain"]
+        e = r["explain"]
+        assert isinstance(e["base_score"], (int, float))
+        assert isinstance(e["type_boost"], (int, float))
+        assert isinstance(e["final_score"], (int, float))
+        assert e["source"] in ("fts5", "like")
+        assert e["final_score"] == e["base_score"] + e["type_boost"]
 
     def test_search_no_explain_by_default(self, tmp_storage):
         conn = tmp_storage._get_conn()
@@ -401,3 +404,84 @@ class TestUpdateDelete:
         result = tmp_storage.add_repo("https://github.com/test/repo", mask="../../etc/passwd")
         assert result.is_err()
         assert "path traversal" in result.error.lower()
+
+    def test_add_repo_with_mocked_clone(self, tmp_storage):
+        from unittest.mock import patch, MagicMock
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stderr = ""
+
+        with patch("storage.subprocess.run", return_value=mock_result):
+            # Create repo dir after "clone"
+            repo_dir = tmp_storage.repos_dir / "test-repo"
+            repo_dir.mkdir(exist_ok=True)
+            (repo_dir / "README.md").write_text("# Test\nContent here")
+
+            result = tmp_storage.add_repo("https://github.com/test/test-repo", description="Test repo")
+            assert result.is_ok()
+            assert result.value["name"] == "test-repo"
+            assert result.value["files_indexed"] == 1
+
+    def test_add_repo_clone_failure(self, tmp_storage):
+        from unittest.mock import patch, MagicMock
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "fatal: repository not found"
+
+        with patch("storage.subprocess.run", return_value=mock_result):
+            result = tmp_storage.add_repo("https://github.com/nonexistent/repo")
+            assert result.is_err()
+            assert "Clone failed" in result.error
+
+    def test_get_with_chunk(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title, chunk_index, total_chunks) VALUES (?, ?, ?, ?, ?, ?)",
+            ("test", "doc.md", "Chunk 0 content", "Title", 0, 2),
+        )
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title, chunk_index, total_chunks) VALUES (?, ?, ?, ?, ?, ?)",
+            ("test", "doc.md", "Chunk 1 content", "Title", 1, 2),
+        )
+        conn.commit()
+
+        result = tmp_storage.get("doc.md", chunk=0)
+        assert result.is_ok()
+        assert result.value["content"] == "Chunk 0 content"
+        assert result.value["chunk_index"] == 0
+
+    def test_get_with_collection(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("core__fastapi", "guide.md", "FastAPI guide", "Guide"),
+        )
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("guide__pytest", "guide.md", "Pytest guide", "Guide"),
+        )
+        conn.commit()
+
+        result = tmp_storage.get("guide.md", collection="core__fastapi")
+        assert result.is_ok()
+        assert result.value["collection"] == "core__fastapi"
+
+    def test_get_multi_chunk_assembly(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title, chunk_index, total_chunks) VALUES (?, ?, ?, ?, ?, ?)",
+            ("test", "doc.md", "First part.", "Title", 0, 2),
+        )
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title, chunk_index, total_chunks) VALUES (?, ?, ?, ?, ?, ?)",
+            ("test", "doc.md", "Second part.", "Title", 1, 2),
+        )
+        conn.commit()
+
+        result = tmp_storage.get("doc.md")
+        assert result.is_ok()
+        assert "First part." in result.value["content"]
+        assert "Second part." in result.value["content"]
+        assert result.value["chunks"] == 2

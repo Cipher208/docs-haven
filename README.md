@@ -254,7 +254,7 @@ DocsHaven adds a complete knowledge management layer on top of SQLite: automatic
 <details>
 <summary><b>Can I use this with Claude Desktop / Cursor / other AI agents?</b></summary>
 
-Yes. DocsHaven runs as an MCP server. Add it to your MCP client config and all 14 tools become available to your agent.
+Yes. DocsHaven runs as an MCP server. Add it to your MCP client config and all 16 tools become available to your agent.
 
 </details>
 

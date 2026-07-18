@@ -17,7 +17,7 @@ pip install -e ".[test]"
 ## Requirements
 
 - Python 3.10+
-- No external dependencies required (SQLite FTS5 is built into Python)
+- Requires `mcp[cli]` (installed automatically with pip)
 
 ## Verify Installation
 

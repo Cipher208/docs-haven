@@ -27,7 +27,7 @@ pip install docs-haven
 
 ## Usage
 
-Cursor's AI chat will automatically have access to all 14 DocsHaven tools.
+Cursor's AI chat will automatically have access to all 16 DocsHaven tools.
 
 Try:
 - "Search my knowledge base for async patterns"
