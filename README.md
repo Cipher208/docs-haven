@@ -6,10 +6,11 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/Cipher208/docs-haven)](https://github.com/Cipher208/docs-haven/commits/main)
 [![CI](https://img.shields.io/github/actions/workflow/status/Cipher208/docs-haven/ci.yml?branch=main)](https://github.com/Cipher208/docs-haven/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Coverage](https://img.shields.io/badge/coverage-82%25-brightgreen)](https://codecov.io/gh/Cipher208/docs-haven)
 
 > **Your AI agent keeps forgetting what it learned last session. DocsHaven fixes that.**
 
-**Add your repos, and your agent always has them at hand.** DocsHaven is a local knowledge base that lets you index any GitHub repository, search it instantly, and keep your agent informed across sessions. Zero dependencies, works with any MCP-compatible agent — Claude, Cursor, Gemini, Codex.
+**Add your repos, and your agent always has them at hand.** DocsHaven is a local knowledge base that lets you index any GitHub repository, search it instantly, and keep your agent informed across sessions. Works with any MCP-compatible agent — Claude, Cursor, Gemini, Codex.
 
 **Why DocsHaven?**
 - 🧠 **Add repos once, search forever** — your agent always has the knowledge it needs
@@ -20,12 +21,14 @@
 
 ## Features
 
-- **SQLite FTS5 search** — BM25 ranking with LIKE fallback
+- **SQLite FTS5 search** — BM25 ranking with LIKE fallback, score explanation
 - **URI routing** — organize knowledge by domain: `core://`, `ref://`, `guide://`
 - **Git sync** — compressed chunks for multi-machine sync (no merge conflicts)
 - **Conflict detection** — flag contradictions when adding documents
 - **MCP server** — 16 tools for any MCP-compatible agent
 - **Document chunking** — split long documents for better search precision
+- **Result type** — Pydantic v2 models with Ok/Err pattern
+- **Input validation** — URL, collection names, query length validated
 
 ## Installation
 
@@ -33,19 +36,25 @@
 pip install docs-haven
 ```
 
+Or with uv (recommended):
+
+```bash
+uv pip install docs-haven
+```
+
 Or from source:
 
 ```bash
 git clone https://github.com/Cipher208/docs-haven.git
 cd docs-haven
-pip install -e .
+uv sync
 ```
 
 <details>
 <summary><b>With test dependencies</b></summary>
 
 ```bash
-pip install -e ".[test]"
+uv sync --extra test
 ```
 
 </details>
@@ -281,12 +290,12 @@ docs-haven/
 ├── uri.py           # URI routing
 ├── sync.py          # Git sync (compressed chunks)
 ├── conflicts.py     # Conflict detection
-├── result.py        # Ok/Err Result type
-├── cli.py           # CLI interface
+├── result.py        # Ok/Err Result type (Pydantic v2)
+├── cli.py           # CLI interface (7 commands)
 ├── benchmark.py     # Performance benchmarks
-├── tests/           # pytest test suite (78 tests)
-├── docs/            # Documentation + ADRs
-└── pyproject.toml   # Package config
+├── tests/           # pytest test suite (120 tests, 82% coverage)
+├── docs/            # Documentation + 8 ADRs
+└── pyproject.toml   # Package config (uv)
 ```
 
 ## Performance
@@ -300,7 +309,7 @@ Benchmarked on Linux (Python 3.14, SQLite FTS5):
 | Search (P95) | 4.3ms |
 | Throughput | 299 queries/sec |
 
-Run benchmark: `python benchmark.py`
+Run benchmark: `uv run python benchmark.py`
 
 ## Integrations
 
@@ -316,19 +325,22 @@ Run benchmark: `python benchmark.py`
 
 ```bash
 # Install with test dependencies
-pip install -e ".[test]"
+uv sync --extra test
 
 # Run tests
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # Run linting
-ruff check .
+uv run ruff check .
 
 # Run formatting
-ruff format .
+uv run ruff format .
 
 # Run type checking
-mypy . --ignore-missing-imports
+uv run mypy . --ignore-missing-imports
+
+# Run coverage
+uv run pytest tests/ --cov --cov-report=term-missing
 ```
 
 ## Security

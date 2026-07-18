@@ -4,6 +4,33 @@ All notable changes to DocsHaven will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-07-18
+
+### Added
+- **Pydantic v2 models** — Ok, Err, ConflictResult, ChunkEntry, Manifest converted to BaseModel
+- **Input validation** — validate_url, validate_collection, validate_query, validate_file_mask
+- **E2E tests** — 12 end-to-end tests covering search, CRUD, conflicts, sync, URI, config
+- **Chaos fixtures** — 9 tests for database locked, timeout, disk full, corrupt data
+- **Codecov integration** — coverage reporting in CI
+- **uv migration** — CI migrated from pip to uv for faster installs
+- **CLI reference** — `docs/cli.md` with all 7 commands documented
+- **Troubleshooting guide** — `docs/troubleshooting.md` with common issues
+- **Configuration guide** — `docs/configuration.md` with data directory and HTTP server docs
+- **CodeRabbit config** — `.coderabbit.yaml` for AI code review
+- **Greptile config** — `greptile.yaml` for code analysis
+- **CodeFactor config** — `.codefactor.yml` for code quality metrics
+
+### Changed
+- **Result type** — Ok/Err are now Pydantic BaseModel with `is_ok`/`is_err` as properties
+- **CI** — migrated from pip to astral-sh/setup-uv
+- **Coverage** — added pytest-cov and Codecov upload
+- **Architecture docs** — updated with result.py, cli.py, benchmark.py
+- **Examples** — updated to use Result type pattern
+
+### Fixed
+- **CI lint errors** — fixed ruff formatting issues
+- **CI audit** — pip-audit installed via uv tool
+
 ## [0.4.0] - 2026-07-17
 
 ### Added
