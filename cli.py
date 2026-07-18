@@ -15,10 +15,10 @@ def cmd_search(args: argparse.Namespace) -> None:
     """Search the knowledge base."""
     storage = get_storage()
     result = storage.search(args.query, limit=args.limit, explain=getattr(args, "explain", False))
-    if result.is_err():
-        print(f"Error: {result.error}")
+    if result.is_err():  # type: ignore[union-attr]
+        print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
-    results = result.value
+    results = result.value  # type: ignore[union-attr]
     if not results:
         print("No results found.")
         return
@@ -36,10 +36,10 @@ def cmd_add(args: argparse.Namespace) -> None:
     """Add a repository."""
     storage = get_storage()
     result = storage.add_repo(args.url, description=args.description)
-    if result.is_err():
-        print(f"Error (Add repo): {result.error}")
+    if result.is_err():  # type: ignore[union-attr]
+        print(f"Error (Add repo): {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
-    data = result.value
+    data = result.value  # type: ignore[union-attr]
     print(f"Added {data['name']}: {data['files_indexed']} files, {data.get('chunks', 0)} chunks")
 
 
@@ -47,10 +47,10 @@ def cmd_stats(args: argparse.Namespace) -> None:
     """Show knowledge base statistics."""
     storage = get_storage()
     result = storage.stats()
-    if result.is_err():
-        print(f"Error: {result.error}")
+    if result.is_err():  # type: ignore[union-attr]
+        print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
-    stats = result.value
+    stats = result.value  # type: ignore[union-attr]
     print(f"Collections: {stats['collections']}")
     print(f"Documents: {stats['total_documents']}")
     print(f"Chunks: {stats['total_chunks']}")
@@ -80,10 +80,10 @@ def cmd_list(args: argparse.Namespace) -> None:
     """List all collections."""
     storage = get_storage()
     result = storage.list_collections()
-    if result.is_err():
-        print(f"Error: {result.error}")
+    if result.is_err():  # type: ignore[union-attr]
+        print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
-    for c in result.value:
+    for c in result.value:  # type: ignore[union-attr]
         print(f"  {c['name']}: {c['count']} docs, {c['chunks']} chunks")
 
 
@@ -91,10 +91,10 @@ def cmd_delete(args: argparse.Namespace) -> None:
     """Delete a document."""
     storage = get_storage()
     result = storage.delete_document(args.file_path)
-    if result.is_err():
-        print(f"Error: {result.error}")
+    if result.is_err():  # type: ignore[union-attr]
+        print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
-    print(f"Deleted: {result.value['file_path']}")
+    print(f"Deleted: {result.value['file_path']}")  # type: ignore[union-attr]
 
 
 def cmd_serve(args: argparse.Namespace) -> None:

@@ -17,11 +17,12 @@ logger = logging.getLogger("docs-haven")
 mcp = FastMCP("docs-haven")
 
 
-def _unwrap(result) -> dict | list[dict]:
+def _unwrap(result) -> dict:
     """Unwrap a Result at the MCP boundary. Returns value or error dict."""
     if result.is_err():  # type: ignore[union-attr]
         return {"error": result.error}  # type: ignore[union-attr]
     return result.value  # type: ignore[union-attr]
+
 
 # Thread-safe singleton: double-checked locking pattern.
 # First check avoids lock contention on hot path.
@@ -146,7 +147,7 @@ async def kb_delete(file_path: str, collection: str | None = None) -> dict:
 
 
 @mcp.tool()
-async def kb_list_collections() -> list[dict]:
+async def kb_list_collections() -> list[dict] | dict:
     """List all knowledge base collections with document counts."""
     result = _get_storage().list_collections()
     return _unwrap(result)

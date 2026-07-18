@@ -11,9 +11,7 @@ from result import Ok
 def test_cli_search(monkeypatch, capsys):
     """Test search command outputs formatted results."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.search.return_value = Ok(
-            [{"score": 0.9, "collection": "test", "title": "Test Doc", "content": "Content here..."}]
-        )
+        mock.return_value.search.return_value = Ok([{"score": 0.9, "collection": "test", "title": "Test Doc", "content": "Content here..."}])
         with patch("sys.argv", ["cli", "search", "test query"]):
             main()
     captured = capsys.readouterr()
@@ -77,9 +75,7 @@ def test_cli_stats(capsys):
 def test_cli_list(capsys):
     """Test list command outputs collections."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.list_collections.return_value = Ok(
-            [{"name": "core__fastapi", "count": 10, "chunks": 25}]
-        )
+        mock.return_value.list_collections.return_value = Ok([{"name": "core__fastapi", "count": 10, "chunks": 25}])
         with patch("sys.argv", ["cli", "list"]):
             main()
     captured = capsys.readouterr()

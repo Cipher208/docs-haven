@@ -141,12 +141,14 @@ class Syncer:
         for collection_name, docs in collections.items():
             for doc in docs:
                 if isinstance(doc, dict):
-                    documents.append({
-                        "collection": collection_name,
-                        "path": doc.get("path", ""),
-                        "content": doc.get("content", ""),
-                        "title": doc.get("title", ""),
-                    })
+                    documents.append(
+                        {
+                            "collection": collection_name,
+                            "path": doc.get("path", ""),
+                            "content": doc.get("content", ""),
+                            "title": doc.get("title", ""),
+                        }
+                    )
         storage.bulk_insert(documents)
         return len(collections), sum(len(d) for d in collections.values())
 

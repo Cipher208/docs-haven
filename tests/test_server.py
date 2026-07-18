@@ -122,8 +122,8 @@ async def test_kb_get_path_traversal():
 @pytest.mark.asyncio
 async def test_kb_get_nonexistent(mock_storage):
     """Test kb_get returns error for nonexistent document."""
-    from server import kb_get
     from result import Err
+    from server import kb_get
 
     mock_storage.get.return_value = Err("Document not found")
     result = await kb_get("nonexistent.md")

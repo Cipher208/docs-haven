@@ -406,7 +406,7 @@ class TestUpdateDelete:
         assert "path traversal" in result.error.lower()
 
     def test_add_repo_with_mocked_clone(self, tmp_storage):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -424,7 +424,7 @@ class TestUpdateDelete:
             assert result.value["files_indexed"] == 1
 
     def test_add_repo_clone_failure(self, tmp_storage):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         mock_result = MagicMock()
         mock_result.returncode = 1
