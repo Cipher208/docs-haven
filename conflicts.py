@@ -130,19 +130,7 @@ class ConflictDetector:
             return {"error": f"Invalid judgment. Must be one of: {sorted(valid_judgments)}"}
 
         storage = self._get_storage()
-        conn = storage._get_conn()
-        try:
-            conn.execute(
-                "INSERT INTO conflict_judgments (new_id, candidate_id, judgment) VALUES (?, ?, ?)",
-                (new_id, candidate_id, judgment),
-            )
-            conn.commit()
-        except sqlite3.Error as e:
-            logger.warning("Failed to persist judgment: %s", e)
-
-        return {
-            "status": "recorded",
-            "new_id": new_id,
-            "candidate_id": candidate_id,
-            "judgment": judgment,
-        }
+        result = storage.record_judgment(new_id, candidate_id, judgment)
+        if result.is_err():  # type: ignore[union-attr]
+            return {"error": result.error}  # type: ignore[union-attr]
+        return result.value  # type: ignore[union-attr]

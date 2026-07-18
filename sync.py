@@ -8,6 +8,7 @@ import gzip
 import hashlib
 import json
 import os
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -132,22 +133,21 @@ class Syncer:
 
     def _import_chunk_data(self, chunk_data: dict, storage) -> tuple[int, int]:
         """Import a single chunk's data into storage. Returns (collections, docs) counts."""
+        collections = chunk_data.get("collections", {})
         if storage is None:
-            collections = chunk_data.get("collections", {})
             return len(collections), sum(len(d) for d in collections.values())
 
-        conn = storage._get_conn()
-        collections = chunk_data.get("collections", {})
+        documents = []
         for collection_name, docs in collections.items():
             for doc in docs:
                 if isinstance(doc, dict):
-                    conn.execute(
-                        """INSERT OR REPLACE INTO documents
-                        (collection, file_path, content, title)
-                        VALUES (?, ?, ?, ?)""",
-                        (collection_name, doc.get("path", ""), doc.get("content", ""), doc.get("title", "")),
-                    )
-        conn.commit()
+                    documents.append({
+                        "collection": collection_name,
+                        "path": doc.get("path", ""),
+                        "content": doc.get("content", ""),
+                        "title": doc.get("title", ""),
+                    })
+        storage.bulk_insert(documents)
         return len(collections), sum(len(d) for d in collections.values())
 
     def import_chunks(self, storage: "Storage | None" = None) -> dict:
@@ -192,7 +192,7 @@ class Syncer:
                     if existing > 0:
                         result["chunks_skipped"] += 1
                         continue
-                except Exception:
+                except sqlite3.Error:
                     pass
 
             with gzip.open(chunk_path, "rb") as f:

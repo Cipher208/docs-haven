@@ -105,3 +105,26 @@ async def test_kb_conflict_check():
     result = await kb_conflict_check("FastAPI Guide", "How to use FastAPI")
     assert isinstance(result, dict)
     assert "has_conflicts" in result
+
+
+@pytest.mark.asyncio
+async def test_kb_get_path_traversal():
+    """Test kb_get rejects path traversal."""
+    from server import kb_get
+
+    result = await kb_get("../../../etc/passwd")
+    assert "error" in result
+
+    result = await kb_get("/etc/passwd")
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_kb_get_nonexistent(mock_storage):
+    """Test kb_get returns error for nonexistent document."""
+    from server import kb_get
+    from result import Err
+
+    mock_storage.get.return_value = Err("Document not found")
+    result = await kb_get("nonexistent.md")
+    assert "error" in result

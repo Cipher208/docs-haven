@@ -16,6 +16,13 @@ logger = logging.getLogger("docs-haven")
 
 mcp = FastMCP("docs-haven")
 
+
+def _unwrap(result) -> dict | list[dict]:
+    """Unwrap a Result at the MCP boundary. Returns value or error dict."""
+    if result.is_err():  # type: ignore[union-attr]
+        return {"error": result.error}  # type: ignore[union-attr]
+    return result.value  # type: ignore[union-attr]
+
 # Thread-safe singleton: double-checked locking pattern.
 # First check avoids lock contention on hot path.
 # Second check inside lock prevents double-creation.
@@ -68,9 +75,7 @@ async def kb_search(
     """
     storage = _get_storage()
     result = storage.search(query, collections, limit, explain=explain, min_score=min_score)
-    if result.is_err():  # type: ignore[union-attr]
-        return {"error": result.error}  # type: ignore[union-attr]
-    return result.value  # type: ignore[union-attr]
+    return _unwrap(result)
 
 
 @mcp.tool()
@@ -96,9 +101,7 @@ async def kb_add_repo(
     # Run blocking git clone in executor to avoid blocking event loop
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, storage.add_repo, url, tags, description, mask)
-    if result.is_err():  # type: ignore[union-attr]
-        return {"error": result.error}  # type: ignore[union-attr]
-    return result.value  # type: ignore[union-attr]
+    return _unwrap(result)
 
 
 @mcp.tool()
@@ -112,9 +115,7 @@ async def kb_get(file_path: str) -> dict:
     if ".." in file_path or file_path.startswith("/"):
         return {"error": "Invalid file path"}
     result = _get_storage().get(file_path)
-    if result.is_err():  # type: ignore[union-attr]
-        return {"error": result.error}  # type: ignore[union-attr]
-    return result.value  # type: ignore[union-attr]
+    return _unwrap(result)
 
 
 @mcp.tool()
@@ -128,9 +129,7 @@ async def kb_update(file_path: str, content: str, title: str | None = None) -> d
     """
     storage = _get_storage()
     result = storage.update_document(file_path, content, title)
-    if result.is_err():  # type: ignore[union-attr]
-        return {"error": result.error}  # type: ignore[union-attr]
-    return result.value  # type: ignore[union-attr]
+    return _unwrap(result)
 
 
 @mcp.tool()
@@ -143,27 +142,21 @@ async def kb_delete(file_path: str, collection: str | None = None) -> dict:
     """
     storage = _get_storage()
     result = storage.delete_document(file_path)
-    if result.is_err():  # type: ignore[union-attr]
-        return {"error": result.error}  # type: ignore[union-attr]
-    return result.value  # type: ignore[union-attr]
+    return _unwrap(result)
 
 
 @mcp.tool()
 async def kb_list_collections() -> list[dict]:
     """List all knowledge base collections with document counts."""
     result = _get_storage().list_collections()
-    if result.is_err():  # type: ignore[union-attr]
-        return [{"error": result.error}]  # type: ignore[union-attr]
-    return result.value  # type: ignore[union-attr]
+    return _unwrap(result)
 
 
 @mcp.tool()
 async def kb_stats() -> dict:
     """Get knowledge base statistics."""
     result = _get_storage().stats()
-    if result.is_err():  # type: ignore[union-attr]
-        return {"error": result.error}  # type: ignore[union-attr]
-    return result.value  # type: ignore[union-attr]
+    return _unwrap(result)
 
 
 # ── URI Routing Tools ──────────────────────────────────────────────────────

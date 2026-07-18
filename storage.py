@@ -21,6 +21,9 @@ from result import Err, Ok
 
 logger = logging.getLogger(__name__)
 
+# Valid URI domains for collection naming (matches uri.py VALID_DOMAINS)
+_VALID_DOMAINS = {"core", "ref", "guide", "lib", "src", "test", "note"}
+
 
 # ── Chunking ────────────────────────────────────────────────────────────────
 
@@ -503,6 +506,35 @@ class Storage:
             logger.debug("Delete failed: %s", e)
             return Err(str(e))
 
+    def record_judgment(self, new_id: str, candidate_id: str, judgment: str) -> Ok[dict] | Err:
+        """Record a conflict judgment."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "INSERT INTO conflict_judgments (new_id, candidate_id, judgment) VALUES (?, ?, ?)",
+                (new_id, candidate_id, judgment),
+            )
+            conn.commit()
+            return Ok({"status": "recorded", "new_id": new_id, "candidate_id": candidate_id, "judgment": judgment})
+        except sqlite3.Error as e:
+            logger.warning("Failed to record judgment: %s", e)
+            return Err(str(e))
+
+    def bulk_insert(self, documents: list[dict]) -> Ok[int] | Err:
+        """Bulk insert documents. Returns count of inserted documents."""
+        conn = self._get_conn()
+        try:
+            for doc in documents:
+                conn.execute(
+                    "INSERT OR REPLACE INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+                    (doc.get("collection", ""), doc.get("path", ""), doc.get("content", ""), doc.get("title", "")),
+                )
+            conn.commit()
+            return Ok(len(documents))
+        except sqlite3.Error as e:
+            logger.debug("Bulk insert failed: %s", e)
+            return Err(str(e))
+
     def list_collections(self) -> Ok[list[dict]] | Err:
         """List all collections with document counts."""
         conn = self._get_conn()
@@ -513,8 +545,6 @@ class Storage:
                    GROUP_CONCAT(context, '|') as contexts
                    FROM documents GROUP BY collection"""
             ).fetchall()
-            from uri import VALID_DOMAINS
-
             return Ok(
                 [
                     {
@@ -523,7 +553,7 @@ class Storage:
                         "chunks": r["chunks"],
                         "contexts": r["contexts"].split("|") if r["contexts"] else [],
                         "domain": r["collection"].split("__")[0]
-                        if "__" in r["collection"] and r["collection"].split("__")[0] in VALID_DOMAINS
+                        if "__" in r["collection"] and r["collection"].split("__")[0] in _VALID_DOMAINS
                         else None,
                     }
                     for r in rows
@@ -576,6 +606,10 @@ class Storage:
 
     def check_stale(self, collection: str) -> Ok[list[dict]] | Err:
         """Check for stale documents by comparing content hashes."""
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9_-]+$", collection):
+            return Err(f"Invalid collection name: {collection}")
         conn = self._get_conn()
         try:
             repo_dir = self.repos_dir / collection

@@ -294,3 +294,110 @@ class TestStorageSearch:
         assert auto_strategy("a") == "fts"
         assert auto_strategy("a b") == "fts"
         assert auto_strategy("a b c") == "hybrid"
+
+
+class TestUpdateDelete:
+    def test_update_document_with_title(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "old content", "Old Title"),
+        )
+        conn.commit()
+
+        result = tmp_storage.update_document("doc.md", "new content", title="New Title")
+        assert result.is_ok()
+
+        doc = tmp_storage.get("doc.md")
+        assert doc.is_ok()
+        assert doc.value["content"] == "new content"
+        assert doc.value["title"] == "New Title"
+
+    def test_update_document_without_title(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "old content", "Title"),
+        )
+        conn.commit()
+
+        result = tmp_storage.update_document("doc.md", "new content")
+        assert result.is_ok()
+
+        doc = tmp_storage.get("doc.md")
+        assert doc.is_ok()
+        assert doc.value["content"] == "new content"
+        assert doc.value["title"] == "Title"
+
+    def test_delete_document(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "content", "Title"),
+        )
+        conn.commit()
+
+        result = tmp_storage.delete_document("doc.md")
+        assert result.is_ok()
+
+        doc = tmp_storage.get("doc.md")
+        assert doc.is_err()
+
+    def test_check_stale_content_changed(self, tmp_storage):
+        import hashlib
+
+        repo_dir = tmp_storage.repos_dir / "test"
+        repo_dir.mkdir()
+        (repo_dir / "doc.md").write_text("original content")
+
+        original_hash = hashlib.sha256(b"original content").hexdigest()
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, content_hash, title) VALUES (?, ?, ?, ?, ?)",
+            ("test", "doc.md", "original content", original_hash, "Doc"),
+        )
+        conn.commit()
+
+        # Modify the file
+        (repo_dir / "doc.md").write_text("modified content")
+
+        result = tmp_storage.check_stale("test")
+        assert result.is_ok()
+        stale = result.value
+        assert len(stale) == 1
+        assert stale[0]["reason"] == "content_changed"
+
+    def test_check_stale_nonexistent_collection(self, tmp_storage):
+        result = tmp_storage.check_stale("nonexistent")
+        assert result.is_ok()
+        assert result.value == []
+
+    def test_stats_with_data(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "content", "Title"),
+        )
+        conn.commit()
+
+        result = tmp_storage.stats()
+        assert result.is_ok()
+        stats = result.value
+        assert stats["total_documents"] == 1
+        assert stats["total_chunks"] == 1
+        assert stats["collections"] == 1
+        assert stats["db_size_kb"] > 0
+
+    def test_add_repo_invalid_url(self, tmp_storage):
+        result = tmp_storage.add_repo("ftp://invalid.com/repo")
+        assert result.is_err()
+        assert "Invalid URL scheme" in result.error
+
+    def test_add_repo_path_traversal_mask(self, tmp_storage):
+        # Create a fake repo dir so clone is skipped
+        repo_dir = tmp_storage.repos_dir / "repo"
+        repo_dir.mkdir()
+
+        result = tmp_storage.add_repo("https://github.com/test/repo", mask="../../etc/passwd")
+        assert result.is_err()
+        assert "path traversal" in result.error.lower()
