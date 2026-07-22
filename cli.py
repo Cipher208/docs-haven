@@ -130,6 +130,13 @@ def cmd_collection(args: argparse.Namespace) -> None:
             print(f"Error: {e}")
             sys.exit(1)
 
+    elif args.subcmd == "rename":
+        rename_result = storage.rename_collection(args.old_name, args.new_name)
+        if rename_result.is_err:  # type: ignore[union-attr]
+            print(f"Error: {rename_result.error}")  # type: ignore[union-attr]
+            sys.exit(1)
+        print(f"Renamed: {args.old_name} → {args.new_name}")
+
 
 def cmd_delete(args: argparse.Namespace) -> None:
     """Delete a document."""
@@ -264,6 +271,9 @@ def main() -> None:
     show_p.add_argument("name", help="Collection name")
     rm_p = col_sub.add_parser("remove", help="Remove a collection")
     rm_p.add_argument("name", help="Collection name")
+    rename_p = col_sub.add_parser("rename", help="Rename a collection")
+    rename_p.add_argument("old_name", help="Current collection name")
+    rename_p.add_argument("new_name", help="New collection name")
     sp.set_defaults(func=cmd_collection)
 
     # context management

@@ -147,6 +147,17 @@ async def kb_delete(file_path: str, collection: str | None = None) -> dict:
 
 
 @mcp.tool()
+async def kb_collection_rename(old_name: str, new_name: str) -> dict:
+    """Rename a collection across all documents.
+
+    Args:
+        old_name: Current collection name
+        new_name: New collection name
+    """
+    return _unwrap(_get_storage().rename_collection(old_name, new_name))
+
+
+@mcp.tool()
 async def kb_list_collections() -> list[dict] | dict:
     """List all knowledge base collections with document counts."""
     result = _get_storage().list_collections()

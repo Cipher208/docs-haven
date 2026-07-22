@@ -578,6 +578,59 @@ class Storage:
             logger.debug("Bulk insert failed: %s", e)
             return Err(error=str(e))
 
+    def rename_collection(self, old_name: str, new_name: str) -> Ok[dict] | Err:
+        """Rename a collection across all documents and config."""
+        old_err = validate_collection(old_name)
+        if old_err:
+            return Err(error=f"Invalid old name: {old_err}")
+        new_err = validate_collection(new_name)
+        if new_err:
+            return Err(error=f"Invalid new name: {new_err}")
+
+        conn = self._get_conn()
+        try:
+            # Check if old collection exists
+            count = conn.execute(
+                "SELECT COUNT(*) FROM documents WHERE collection = ?", (old_name,)
+            ).fetchone()[0]
+            if count == 0:
+                return Err(error=f"Collection not found: {old_name}")
+
+            # Check if new name already exists
+            existing = conn.execute(
+                "SELECT COUNT(*) FROM documents WHERE collection = ?", (new_name,)
+            ).fetchone()[0]
+            if existing > 0:
+                return Err(error=f"Collection already exists: {new_name}")
+
+            # Rename all documents
+            conn.execute(
+                "UPDATE documents SET collection = ? WHERE collection = ?",
+                (new_name, old_name),
+            )
+            # Rename context attachments
+            conn.execute(
+                "UPDATE context_attachments SET collection = ? WHERE collection = ?",
+                (new_name, old_name),
+            )
+            # Rename conflict judgments
+            conn.execute(
+                "UPDATE conflict_judgments SET new_id = ? WHERE new_id = ?",
+                (new_name, old_name),
+            )
+            conn.commit()
+
+            # Update config
+            config = self._load_config()
+            if "repos" in config and old_name in config["repos"]:
+                config["repos"][new_name] = config["repos"].pop(old_name)
+                self._save_config(config)
+
+            return Ok(value={"status": "renamed", "from": old_name, "to": new_name, "documents": count})
+        except sqlite3.Error as e:
+            logger.debug("Rename collection failed: %s", e)
+            return Err(error=str(e))
+
     def list_collections(self) -> Ok[list[dict]] | Err:
         conn = self._get_conn()
         try:
