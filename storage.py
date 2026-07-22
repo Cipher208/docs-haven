@@ -608,6 +608,14 @@ class Storage:
         conn = self._get_conn()
         try:
             for doc in documents:
+                # Delete existing chunks for this file before insert
+                coll = doc.get("collection", "")
+                path = doc.get("path", "")
+                if coll and path:
+                    conn.execute(
+                        "DELETE FROM documents WHERE collection = ? AND file_path = ?",
+                        (coll, path),
+                    )
                 conn.execute(
                     "INSERT OR REPLACE INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
                     (doc.get("collection", ""), doc.get("path", ""), doc.get("content", ""), doc.get("title", "")),

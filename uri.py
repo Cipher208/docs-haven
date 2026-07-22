@@ -48,7 +48,9 @@ class URI:
 
     def to_file_pattern(self) -> str:
         """Map URI to file glob pattern for search."""
-        return f"**/{self.path}*"
+        # Escape glob special characters in path
+        escaped = self.path.replace("[", "[[]").replace("*", "[*]").replace("?", "[?]")
+        return f"**/{escaped}*"
 
     def __str__(self) -> str:
         return self.raw

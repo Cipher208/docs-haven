@@ -210,13 +210,20 @@ def cmd_import(args: argparse.Namespace) -> None:
     with open(args.file) as f:
         data = json.load(f)
 
-    for item in data:
-        storage.bulk_insert([{
+    # Batch insert all documents at once
+    docs = [
+        {
             "collection": item.get("collection", ""),
             "path": item.get("path", ""),
             "content": item.get("content", ""),
             "title": item.get("title", ""),
-        }])
+        }
+        for item in data
+    ]
+    result = storage.bulk_insert(docs)
+    if result.is_err:  # type: ignore[union-attr]
+        print(f"Error: {result.error}")  # type: ignore[union-attr]
+        sys.exit(1)
 
     print(f"Imported {len(data)} documents")
 
