@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -27,20 +28,14 @@ _VALID_DOMAINS = {"core", "ref", "guide", "lib", "src", "test", "note"}
 
 # ── Validation ──────────────────────────────────────────────────────────────
 
-# Max query length for FTS5 (prevents memory exhaustion)
 _MAX_QUERY_LENGTH = 10000
-# Max tokens in FTS5 query
 _MAX_FTS5_TOKENS = 100
-# Max search result limit
 _MAX_SEARCH_LIMIT = 1000
-# Valid URL schemes for git clone
 _VALID_URL_SCHEMES = ("https://", "http://", "git@")
-# Pattern for safe collection names (alphanumeric + underscore + hyphen)
 _COLLECTION_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def validate_url(url: str) -> str | None:
-    """Validate URL for git clone. Returns error message or None."""
     if not url.startswith(_VALID_URL_SCHEMES):
         return f"Invalid URL scheme: {url}"
     if len(url) > 2048:
@@ -49,7 +44,6 @@ def validate_url(url: str) -> str | None:
 
 
 def validate_collection(name: str) -> str | None:
-    """Validate collection name. Returns error message or None."""
     if not name:
         return "Collection name cannot be empty"
     if len(name) > 255:
@@ -60,14 +54,12 @@ def validate_collection(name: str) -> str | None:
 
 
 def validate_query(query: str) -> str | None:
-    """Validate search query. Returns error message or None."""
     if len(query) > _MAX_QUERY_LENGTH:
         return f"Query too long (max {_MAX_QUERY_LENGTH} chars)"
     return None
 
 
 def validate_file_mask(mask: str) -> str | None:
-    """Validate file mask for path traversal. Returns error message or None."""
     if ".." in mask:
         return "File mask must not contain '..' (path traversal)"
     if mask.startswith("/"):
@@ -77,14 +69,11 @@ def validate_file_mask(mask: str) -> str | None:
 
 # ── Chunking ────────────────────────────────────────────────────────────────
 
-# ADR-004: 1000 chars balances search precision vs context retention
 CHUNK_SIZE = 1000
-# 20% overlap prevents losing context at chunk boundaries
 CHUNK_OVERLAP = 200
 
 
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    """Split text into overlapping chunks for better search precision."""
     if not text:
         return []
     if len(text) <= chunk_size:
@@ -113,9 +102,7 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 # ── Auto Strategy ───────────────────────────────────────────────────────────
 
 
-# ADR-005: ≤2 words = fast FTS5; longer queries benefit from LIKE fallback
 def auto_strategy(query: str) -> str:
-    """Pick search strategy based on query complexity."""
     if len(query.split()) <= 2:
         return "fts"
     return "hybrid"
@@ -132,7 +119,6 @@ TYPE_KEYWORDS = {
 
 
 def type_boost(query: str, result: dict) -> float:
-    """Calculate type-aware boost for a search result."""
     query_lower = query.lower()
     title_lower = result.get("title", "").lower()
     content_lower = result.get("content", "").lower()[:200]
@@ -155,7 +141,6 @@ class Storage:
 
     @classmethod
     def default(cls) -> "Storage":
-        """Create Storage with default ~/.docshaven path."""
         return cls(Path.home() / ".docshaven")
 
     def __init__(self, data_dir: Path):
@@ -164,21 +149,16 @@ class Storage:
         self.config_path = data_dir / "config.json"
         self.db_path = data_dir / "docshaven.db"
         self.repos_dir.mkdir(parents=True, exist_ok=True)
-        # ADR-007: Single persistent connection for MCP server concurrency.
-        # check_same_thread=False allows cross-thread access from async handlers.
-        # _conn_lock protects _get_conn from double-creation under concurrent requests.
         self._conn: sqlite3.Connection | None = None
         self._conn_lock = threading.Lock()
         self._init_db()
 
     def close(self) -> None:
-        """Close the database connection."""
         if self._conn is not None:
             self._conn.close()
             self._conn = None
 
     def _get_conn(self) -> sqlite3.Connection:
-        """Get or create a persistent connection with WAL mode and performance PRAGMAs."""
         if self._conn is not None:
             try:
                 self._conn.execute("SELECT 1")
@@ -199,9 +179,7 @@ class Storage:
         return self._conn
 
     def _init_db(self):
-        """Initialize SQLite database with FTS5 tables and chunk support."""
         conn = self._get_conn()
-
         conn.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -219,7 +197,6 @@ class Storage:
                 UNIQUE(collection, file_path, chunk_index)
             )
         """)
-
         conn.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
                 title, content, collection,
@@ -228,35 +205,11 @@ class Storage:
                 tokenize='porter unicode61'
             )
         """)
-
-        # Triggers to keep FTS in sync
-        conn.execute("""
-            CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
-                INSERT INTO documents_fts(rowid, title, content, collection)
-                VALUES (new.id, new.title, new.content, new.collection);
-            END
-        """)
-        conn.execute("""
-            CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-                INSERT INTO documents_fts(documents_fts, rowid, title, content, collection)
-                VALUES ('delete', old.id, old.title, old.content, old.collection);
-            END
-        """)
-        conn.execute("""
-            CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-                INSERT INTO documents_fts(documents_fts, rowid, title, content, collection)
-                VALUES ('delete', old.id, old.title, old.content, old.collection);
-                INSERT INTO documents_fts(rowid, title, content, collection)
-                VALUES (new.id, new.title, new.content, new.collection);
-            END
-        """)
-
-        # Indexes for filtered queries
+        for trigger_sql in _FTS_TRIGGERS:
+            conn.execute(trigger_sql)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_filepath ON documents(file_path)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_collection_filepath ON documents(collection, file_path)")
-
-        # Conflict judgments table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS conflict_judgments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -266,12 +219,15 @@ class Storage:
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
-
         conn.commit()
 
     def _index_file(self, conn: sqlite3.Connection, f: Path, repo_dir: Path, name: str, description: str | None) -> int:
-        """Index a single file into FTS5. Returns number of chunks inserted."""
         if f.is_symlink():
+            return 0
+        # Path traversal check
+        try:
+            f.resolve().relative_to(repo_dir.resolve())
+        except ValueError:
             return 0
         content = f.read_text(errors="ignore")
         rel_path = str(f.relative_to(repo_dir))
@@ -294,7 +250,6 @@ class Storage:
         description: str | None = None,
         mask: str | None = None,
     ) -> Ok[dict] | Err:
-        """Clone repo and index documents into FTS5 with chunking."""
         url_error = validate_url(url)
         if url_error:
             return Err(error=url_error)
@@ -310,10 +265,7 @@ class Storage:
                 timeout=120,
             )
             if result.returncode != 0:
-                # Clean up partial clone
                 if repo_dir.exists():
-                    import shutil
-
                     shutil.rmtree(repo_dir, ignore_errors=True)
                 return Err(error=f"Clone failed: {result.stderr}")
 
@@ -347,7 +299,6 @@ class Storage:
         return Ok(value={"name": name, "status": "added", "files_indexed": indexed, "chunks": total_chunks})
 
     def _merge_hybrid(self, results: list[dict], query: str, collections: list[str] | None, limit: int) -> list[dict]:
-        """Merge FTS5 results with LIKE fallback for hybrid search."""
         like_results = self._search_like(query, collections, limit)
         seen = {r["path"] for r in results}
         for r in like_results:
@@ -366,7 +317,6 @@ class Storage:
         explain: bool = False,
         min_score: float = 0.0,
     ) -> Ok[list[dict]] | Err:
-        """Search with auto strategy selection."""
         query_error = validate_query(query)
         if query_error:
             return Err(error=query_error)
@@ -400,7 +350,6 @@ class Storage:
         return Ok(value=results[:limit])
 
     def _row_to_result(self, row: sqlite3.Row, source: str, highlighted: str | None = None, score: float | None = None) -> dict:
-        """Convert a database row to a search result dict."""
         return {
             "path": f"{row['collection']}/{row['file_path']}",
             "content": row["content"][:500],
@@ -413,127 +362,104 @@ class Storage:
             "source": source,
         }
 
+    def _build_fts_sql(self, collections: list[str] | None) -> tuple[str, list]:
+        """Build FTS5 search SQL with optional collection filter."""
+        base = """
+            SELECT d.file_path, d.content, d.collection, d.title,
+                   d.chunk_index, d.total_chunks, rank,
+                   snippet(documents_fts, 2, '<b>', '</b>', '...', 20) as highlighted
+            FROM documents_fts fts
+            JOIN documents d ON fts.rowid = d.id
+            WHERE documents_fts MATCH ?
+        """
+        if collections:
+            placeholders = ",".join("?" * len(collections))
+            return base + f" AND d.collection IN ({placeholders}) ORDER BY rank LIMIT ?", collections
+        return base + " ORDER BY rank LIMIT ?", []
+
     def _search_fts5(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
-        """FTS5 search with BM25 ranking."""
         conn = self._get_conn()
         try:
-            # Escape each token and wrap in quotes to prevent FTS5 operator injection
             tokens = query.split()
             fts_query = " ".join(f'"{t.replace(chr(34), chr(34) + chr(34))}"' for t in tokens) if tokens else '""'
-
-            if collections:
-                placeholders = ",".join("?" * len(collections))
-                sql = f"""
-                    SELECT d.file_path, d.content, d.collection, d.title,
-                           d.chunk_index, d.total_chunks, rank,
-                           snippet(documents_fts, 2, '<b>', '</b>', '...', 20) as highlighted
-                    FROM documents_fts fts
-                    JOIN documents d ON fts.rowid = d.id
-                    WHERE documents_fts MATCH ?
-                    AND d.collection IN ({placeholders})
-                    ORDER BY rank
-                    LIMIT ?
-                """
-                params = [fts_query] + collections + [limit]
-            else:
-                sql = """
-                    SELECT d.file_path, d.content, d.collection, d.title,
-                           d.chunk_index, d.total_chunks, rank,
-                           snippet(documents_fts, 2, '<b>', '</b>', '...', 20) as highlighted
-                    FROM documents_fts fts
-                    JOIN documents d ON fts.rowid = d.id
-                    WHERE documents_fts MATCH ?
-                    ORDER BY rank
-                    LIMIT ?
-                """
-                params = [fts_query, limit]
-
-            rows = conn.execute(sql, params).fetchall()
+            sql_suffix, extra_params = self._build_fts_sql(collections)
+            params = [fts_query] + extra_params + [limit]
+            rows = conn.execute(sql_suffix, params).fetchall()
             return [self._row_to_result(r, "fts5", r["highlighted"]) for r in rows]
         except sqlite3.Error as e:
             logger.debug("FTS5 search failed: %s", e)
             return []
 
+    def _build_like_sql(self, collections: list[str] | None) -> tuple[str, list]:
+        """Build LIKE search SQL with optional collection filter."""
+        base = """
+            SELECT file_path, content, collection, title,
+                   chunk_index, total_chunks
+            FROM documents
+            WHERE (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')
+        """
+        if collections:
+            placeholders = ",".join("?" * len(collections))
+            return base + f" AND collection IN ({placeholders}) LIMIT ?", collections
+        return base + " LIMIT ?", []
+
     def _search_like(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
-        """LIKE fallback for when FTS5 fails or for hybrid search."""
         conn = self._get_conn()
         try:
             escaped = query.replace("%", "\\%").replace("_", "\\_")
-
-            if collections:
-                placeholders = ",".join("?" * len(collections))
-                sql = f"""
-                    SELECT file_path, content, collection, title,
-                           chunk_index, total_chunks
-                    FROM documents
-                    WHERE (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')
-                    AND collection IN ({placeholders})
-                    LIMIT ?
-                """
-                params = [f"%{escaped}%", f"%{escaped}%"] + collections + [limit]
-            else:
-                sql = """
-                    SELECT file_path, content, collection, title,
-                           chunk_index, total_chunks
-                    FROM documents
-                    WHERE title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'
-                    LIMIT ?
-                """
-                params = [f"%{escaped}%", f"%{escaped}%", limit]
-
-            rows = conn.execute(sql, params).fetchall()
+            sql_suffix, extra_params = self._build_like_sql(collections)
+            params = [f"%{escaped}%", f"%{escaped}%"] + extra_params + [limit]
+            rows = conn.execute(sql_suffix, params).fetchall()
             return [self._row_to_result(r, "like", None, score=0.5) for r in rows]
         except sqlite3.Error as e:
             logger.debug("LIKE search failed: %s", e)
             return []
 
+    def _build_get_sql(self, chunk: int | None, collection: str | None) -> tuple[str, list]:
+        """Build GET SQL with optional chunk and collection filters."""
+        conditions = ["file_path = ?"]
+        params: list = []
+
+        if chunk is not None:
+            conditions.append("chunk_index = ?")
+            params.append(chunk)
+        if collection:
+            conditions.append("collection = ?")
+            params.append(collection)
+
+        where = " AND ".join(conditions)
+        return f"SELECT * FROM documents WHERE {where}", params
+
     def get(self, file_path: str, chunk: int | None = None, collection: str | None = None) -> Ok[dict] | Err:
-        """Get a document by path, optionally a specific chunk and collection."""
         conn = self._get_conn()
         try:
+            sql, params = self._build_get_sql(chunk, collection)
+            params = [file_path] + params
+
             if chunk is not None:
-                if collection:
-                    row = conn.execute(
-                        "SELECT * FROM documents WHERE file_path = ? AND chunk_index = ? AND collection = ?",
-                        (file_path, chunk, collection),
-                    ).fetchone()
-                else:
-                    row = conn.execute(
-                        "SELECT * FROM documents WHERE file_path = ? AND chunk_index = ?",
-                        (file_path, chunk),
-                    ).fetchone()
+                row = conn.execute(sql, params).fetchone()
                 if row:
                     return Ok(value=dict(row))
                 return Err(error=f"Document not found: {file_path}")
-            else:
-                if collection:
-                    rows = conn.execute(
-                        "SELECT * FROM documents WHERE file_path = ? AND collection = ? ORDER BY chunk_index",
-                        (file_path, collection),
-                    ).fetchall()
-                else:
-                    rows = conn.execute(
-                        "SELECT * FROM documents WHERE file_path = ? ORDER BY chunk_index",
-                        (file_path,),
-                    ).fetchall()
-                if not rows:
-                    return Err(error=f"Document not found: {file_path}")
-                content = "\n".join(r["content"] for r in rows)
-                return Ok(
-                    value={
-                        "file_path": rows[0]["file_path"],
-                        "content": content,
-                        "collection": rows[0]["collection"],
-                        "title": rows[0]["title"],
-                        "chunks": len(rows),
-                    }
-                )
+
+            rows = conn.execute(sql + " ORDER BY chunk_index", params).fetchall()
+            if not rows:
+                return Err(error=f"Document not found: {file_path}")
+            content = "\n".join(r["content"] for r in rows)
+            return Ok(
+                value={
+                    "file_path": rows[0]["file_path"],
+                    "content": content,
+                    "collection": rows[0]["collection"],
+                    "title": rows[0]["title"],
+                    "chunks": len(rows),
+                }
+            )
         except sqlite3.Error as e:
             logger.debug("Get failed: %s", e)
             return Err(error=str(e))
 
     def update_document(self, file_path: str, content: str, title: str | None = None) -> Ok[dict] | Err:
-        """Update a document's content."""
         conn = self._get_conn()
         try:
             if title:
@@ -553,7 +479,6 @@ class Storage:
             return Err(error=str(e))
 
     def delete_document(self, file_path: str) -> Ok[dict] | Err:
-        """Delete a document by path."""
         conn = self._get_conn()
         try:
             conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
@@ -564,7 +489,6 @@ class Storage:
             return Err(error=str(e))
 
     def record_judgment(self, new_id: str, candidate_id: str, judgment: str) -> Ok[dict] | Err:
-        """Record a conflict judgment."""
         conn = self._get_conn()
         try:
             conn.execute(
@@ -578,7 +502,6 @@ class Storage:
             return Err(error=str(e))
 
     def bulk_insert(self, documents: list[dict]) -> Ok[int] | Err:
-        """Bulk insert documents. Returns count of inserted documents."""
         conn = self._get_conn()
         try:
             for doc in documents:
@@ -593,7 +516,6 @@ class Storage:
             return Err(error=str(e))
 
     def list_collections(self) -> Ok[list[dict]] | Err:
-        """List all collections with document counts."""
         conn = self._get_conn()
         try:
             rows = conn.execute(
@@ -621,7 +543,6 @@ class Storage:
             return Err(error=str(e))
 
     def stats(self) -> Ok[dict] | Err:
-        """Get database statistics."""
         conn = self._get_conn()
         try:
             total = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
@@ -651,7 +572,6 @@ class Storage:
         return {"repos": {}}
 
     def _save_config(self, config: dict):
-        """Atomic write via temp file + rename."""
         tmp_path = self.config_path.with_suffix(".tmp")
         try:
             tmp_path.write_text(json.dumps(config, indent=2))
@@ -661,8 +581,21 @@ class Storage:
                 tmp_path.unlink()
             raise
 
+    def _check_file_stale(self, file_path: Path, repo_dir: Path, stored_hash: str) -> dict | None:
+        """Check if a single file is stale. Returns finding or None."""
+        if file_path.is_symlink():
+            return {"file_path": str(file_path.relative_to(repo_dir)), "reason": "symlink_skipped"}
+        if not file_path.exists():
+            return {"file_path": str(file_path.relative_to(repo_dir)), "reason": "file_deleted"}
+        try:
+            current_hash = hashlib.sha256(file_path.read_text(errors="ignore").encode()).hexdigest()
+            if current_hash != stored_hash:
+                return {"file_path": str(file_path.relative_to(repo_dir)), "reason": "content_changed"}
+        except OSError:
+            return None
+        return None
+
     def check_stale(self, collection: str) -> Ok[list[dict]] | Err:
-        """Check for stale documents by comparing content hashes."""
         coll_error = validate_collection(collection)
         if coll_error:
             return Err(error=coll_error)
@@ -672,24 +605,37 @@ class Storage:
             if not repo_dir.exists():
                 return Ok(value=[])
 
-            stale = []
             rows = conn.execute(
                 "SELECT file_path, content_hash FROM documents WHERE collection = ? AND chunk_index = 0",
                 (collection,),
             ).fetchall()
 
+            stale = []
             for row in rows:
-                file_path = repo_dir / row["file_path"]
-                if file_path.is_symlink():
-                    stale.append({"file_path": row["file_path"], "reason": "symlink_skipped"})
-                elif file_path.exists():
-                    current_hash = hashlib.sha256(file_path.read_text(errors="ignore").encode()).hexdigest()
-                    if current_hash != row["content_hash"]:
-                        stale.append({"file_path": row["file_path"], "reason": "content_changed"})
-                else:
-                    stale.append({"file_path": row["file_path"], "reason": "file_deleted"})
+                finding = self._check_file_stale(repo_dir / row["file_path"], repo_dir, row["content_hash"])
+                if finding:
+                    stale.append(finding)
 
             return Ok(value=stale)
         except (sqlite3.Error, OSError) as e:
             logger.debug("Stale check failed: %s", e)
             return Err(error=str(e))
+
+
+# FTS5 triggers (extracted to reduce nesting in _init_db)
+_FTS_TRIGGERS = [
+    """CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+        INSERT INTO documents_fts(rowid, title, content, collection)
+        VALUES (new.id, new.title, new.content, new.collection);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
+        INSERT INTO documents_fts(documents_fts, rowid, title, content, collection)
+        VALUES ('delete', old.id, old.title, old.content, old.collection);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
+        INSERT INTO documents_fts(documents_fts, rowid, title, content, collection)
+        VALUES ('delete', old.id, old.title, old.content, old.collection);
+        INSERT INTO documents_fts(rowid, title, content, collection)
+        VALUES (new.id, new.title, new.content, new.collection);
+    END""",
+]

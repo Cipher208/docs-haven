@@ -1,27 +1,9 @@
 {
-  "PyPI:mcp:1.0.0": [
+  "PyPI:mcp:1.27": [
     {
-      "vuln_id": "GHSA-3qhf-m339-9g5v",
+      "vuln_id": "GHSA-hvrp-rf83-w775",
       "aliases": [],
-      "summary": "Known vulnerability (GHSA-3qhf-m339-9g5v)",
-      "cvss_score": null,
-      "fixed_version": null,
-      "affected_range": "unknown",
-      "references": []
-    },
-    {
-      "vuln_id": "GHSA-9h52-p55h-vw2f",
-      "aliases": [],
-      "summary": "Known vulnerability (GHSA-9h52-p55h-vw2f)",
-      "cvss_score": null,
-      "fixed_version": null,
-      "affected_range": "unknown",
-      "references": []
-    },
-    {
-      "vuln_id": "GHSA-j975-95f5-7wqh",
-      "aliases": [],
-      "summary": "Known vulnerability (GHSA-j975-95f5-7wqh)",
+      "summary": "Known vulnerability (GHSA-hvrp-rf83-w775)",
       "cvss_score": null,
       "fixed_version": null,
       "affected_range": "unknown",
@@ -44,34 +26,7 @@
       "fixed_version": null,
       "affected_range": "unknown",
       "references": []
-    },
-    {
-      "vuln_id": "PYSEC-2026-1616",
-      "aliases": [],
-      "summary": "Known vulnerability (PYSEC-2026-1616)",
-      "cvss_score": null,
-      "fixed_version": null,
-      "affected_range": "unknown",
-      "references": []
-    },
-    {
-      "vuln_id": "PYSEC-2026-1617",
-      "aliases": [],
-      "summary": "Known vulnerability (PYSEC-2026-1617)",
-      "cvss_score": null,
-      "fixed_version": null,
-      "affected_range": "unknown",
-      "references": []
-    },
-    {
-      "vuln_id": "PYSEC-2026-1618",
-      "aliases": [],
-      "summary": "Known vulnerability (PYSEC-2026-1618)",
-      "cvss_score": null,
-      "fixed_version": null,
-      "affected_range": "unknown",
-      "references": []
     }
   ],
-  "_ts": 1784251403.868213
+  "_ts": 1784717351.225118
 }
