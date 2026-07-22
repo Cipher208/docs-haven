@@ -50,6 +50,7 @@ def validate_url(url: str) -> str | None:
         return "URL contains encoded path traversal"
     # Domain allowlist (prevent SSRF to internal hosts)
     from urllib.parse import urlparse
+
     try:
         parsed = urlparse(url)
         domain = parsed.hostname or ""
@@ -702,9 +703,7 @@ class Storage:
         conn = self._get_conn()
         try:
             # Count documents before deletion
-            count = conn.execute(
-                "SELECT COUNT(*) FROM documents WHERE collection = ?", (name,)
-            ).fetchone()[0]
+            count = conn.execute("SELECT COUNT(*) FROM documents WHERE collection = ?", (name,)).fetchone()[0]
 
             # Delete from all tables
             conn.execute("DELETE FROM documents WHERE collection = ?", (name,))
