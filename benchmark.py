@@ -1,4 +1,9 @@
-"""Benchmark script for DocsHaven — measure search performance."""
+"""Benchmark script for DocsHaven — measure search performance.
+
+Uses generated test documents with Lorem ipsum filler text for realistic
+search benchmarking. Not shipped to end users (excluded from package via
+pyproject.toml tool.hatch.build.exclude).
+"""
 
 import tempfile
 import time

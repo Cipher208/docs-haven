@@ -53,6 +53,7 @@ exclude = [
     "docs/",
     ".github/",
     ".repowise/",
+    "benchmark.py",
     "*.db",
     "*.db-journal",
     "*.db-wal",
