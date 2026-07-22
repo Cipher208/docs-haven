@@ -87,6 +87,50 @@ def cmd_list(args: argparse.Namespace) -> None:
         print(f"  {c['name']}: {c['count']} docs, {c['chunks']} chunks")
 
 
+def cmd_collection(args: argparse.Namespace) -> None:
+    """Collection management."""
+    storage = get_storage()
+
+    if args.subcmd == "list":
+        result = storage.list_collections()
+        if result.is_err:  # type: ignore[union-attr]
+            print(f"Error: {result.error}")  # type: ignore[union-attr]
+            sys.exit(1)
+        for c in result.value:  # type: ignore[union-attr]
+            domain = c.get("domain", "")
+            domain_str = f" [{domain}]" if domain else ""
+            print(f"  {c['name']}{domain_str}: {c['count']} docs, {c['chunks']} chunks")
+
+    elif args.subcmd == "show":
+        result = storage.list_collections()
+        if result.is_err:  # type: ignore[union-attr]
+            print(f"Error: {result.error}")  # type: ignore[union-attr]
+            sys.exit(1)
+        for c in result.value:  # type: ignore[union-attr]
+            if c["name"] == args.name:
+                print(f"Collection: {c['name']}")
+                print(f"  Documents: {c['count']}")
+                print(f"  Chunks: {c['chunks']}")
+                if c.get("contexts"):
+                    print(f"  Contexts: {', '.join(c['contexts'][:5])}")
+                if c.get("domain"):
+                    print(f"  Domain: {c['domain']}")
+                return
+        print(f"Collection not found: {args.name}")
+
+    elif args.subcmd == "remove":
+        # Delete all documents in a collection
+        storage = get_storage()
+        conn = storage._get_conn()
+        try:
+            conn.execute("DELETE FROM documents WHERE collection = ?", (args.name,))
+            conn.commit()
+            print(f"Removed collection: {args.name}")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+
 def cmd_delete(args: argparse.Namespace) -> None:
     """Delete a document."""
     storage = get_storage()
@@ -137,9 +181,19 @@ def main() -> None:
     uri_sub.add_parser("domains", help="List all domains")
     sp.set_defaults(func=cmd_uri)
 
-    # list
+    # list (alias for collection list)
     sp = subparsers.add_parser("list", help="List all collections")
     sp.set_defaults(func=cmd_list)
+
+    # collection management
+    sp = subparsers.add_parser("collection", help="Collection management")
+    col_sub = sp.add_subparsers(dest="subcmd")
+    col_sub.add_parser("list", help="List all collections")
+    show_p = col_sub.add_parser("show", help="Show collection details")
+    show_p.add_argument("name", help="Collection name")
+    rm_p = col_sub.add_parser("remove", help="Remove a collection")
+    rm_p.add_argument("name", help="Collection name")
+    sp.set_defaults(func=cmd_collection)
 
     # delete
     sp = subparsers.add_parser("delete", help="Delete a document")
