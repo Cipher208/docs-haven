@@ -99,6 +99,30 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
     return [c for c in chunks if c]
 
 
+def chunk_code(text: str) -> list[str]:
+    """Chunk code files by function/class boundaries."""
+    if not text:
+        return []
+    # Split on function/class definitions or blank lines
+    chunks = re.split(r"\n(?=(?:def |class |async def |# ---|## ))", text)
+    return [c.strip() for c in chunks if c.strip()]
+
+
+# File extensions that should use code chunking
+_CODE_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb", ".php"}
+
+
+def auto_chunk(text: str, file_path: str | None = None) -> list[str]:
+    """Auto-select chunking strategy based on file type."""
+    if file_path:
+        ext = Path(file_path).suffix.lower()
+        if ext in _CODE_EXTENSIONS:
+            chunks = chunk_code(text)
+            if chunks:
+                return chunks
+    return chunk_text(text)
+
+
 # ── Auto Strategy ───────────────────────────────────────────────────────────
 
 
@@ -244,7 +268,7 @@ class Storage:
         content = f.read_text(errors="ignore")
         rel_path = str(f.relative_to(repo_dir))
         title = f.stem.replace("-", " ").replace("_", " ")
-        chunks = chunk_text(content)
+        chunks = auto_chunk(content, str(f))
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         for i, chunk in enumerate(chunks):
             conn.execute(
@@ -761,6 +785,92 @@ class Storage:
         except sqlite3.Error as e:
             logger.debug("Remove context failed: %s", e)
             return Err(error=str(e))
+
+    # ── Incremental Embedding ────────────────────────────────────────────────
+
+    def find_changed_docs(self, collection: str, repo_dir: Path | None = None) -> list[dict]:
+        """Find documents whose content_hash differs from the repo file.
+
+        Returns list of {file_path, old_hash, new_hash, status} dicts.
+        Status: 'changed', 'deleted', 'added'.
+        """
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT file_path, content_hash FROM documents WHERE collection = ? AND chunk_index = 0",
+                (collection,),
+            ).fetchall()
+
+            if repo_dir is None:
+                repo_dir = self.repos_dir / collection
+
+            stored = {r["file_path"]: r["content_hash"] for r in rows}
+            changed = []
+
+            if repo_dir.exists():
+                current_files = {}
+                for f in repo_dir.glob("**/*"):
+                    if f.is_file() and not f.is_symlink():
+                        rel = str(f.relative_to(repo_dir))
+                        h = hashlib.sha256(f.read_text(errors="ignore").encode()).hexdigest()
+                        current_files[rel] = h
+
+                # Check for changed or deleted files
+                for fp, old_hash in stored.items():
+                    if fp in current_files:
+                        if current_files[fp] != old_hash:
+                            changed.append({"file_path": fp, "old_hash": old_hash, "new_hash": current_files[fp], "status": "changed"})
+                    else:
+                        changed.append({"file_path": fp, "old_hash": old_hash, "new_hash": None, "status": "deleted"})
+
+                # Check for added files
+                for fp in current_files:
+                    if fp not in stored:
+                        changed.append({"file_path": fp, "old_hash": None, "new_hash": current_files[fp], "status": "added"})
+
+            return changed
+        except (sqlite3.Error, OSError) as e:
+            logger.debug("Find changed docs failed: %s", e)
+            return []
+
+    def reindex_collection(self, collection: str) -> Ok[int] | Err:
+        """Re-index a collection, only updating changed documents.
+
+        Returns count of documents updated.
+        """
+        coll_error = validate_collection(collection)
+        if coll_error:
+            return Err(error=coll_error)
+
+        repo_dir = self.repos_dir / collection
+        if not repo_dir.exists():
+            return Err(error=f"Repository not found: {collection}")
+
+        changed = self.find_changed_docs(collection, repo_dir)
+        if not changed:
+            return Ok(value=0)
+
+        conn = self._get_conn()
+        updated = 0
+
+        for item in changed:
+            fp = item["file_path"]
+            full_path = repo_dir / fp
+
+            if item["status"] in ("deleted",):
+                conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, fp))
+                updated += 1
+            elif item["status"] in ("changed", "added") and full_path.exists():
+                # Delete old chunks and re-index
+                conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, fp))
+                try:
+                    self._index_file(conn, full_path, repo_dir, collection, None)
+                    updated += 1
+                except (OSError, sqlite3.Error) as e:
+                    logger.debug("Reindexing %s failed: %s", fp, e)
+
+        conn.commit()
+        return Ok(value=updated)
 
 
 # FTS5 triggers (extracted to reduce nesting in _init_db)
