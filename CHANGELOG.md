@@ -4,6 +4,30 @@ All notable changes to DocsHaven will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-07-22
+
+### Added
+- **Vector search** — optional TF-IDF based vector search (vector.py, no external deps)
+- **CLI collection management** — `collection list`, `collection show`, `collection remove`
+- **Path traversal prevention** — Storage._index_file now validates file paths
+- **v0.6.0 milestone** — GitHub milestone created for triage
+
+### Changed
+- **Storage refactor** — extracted _build_fts_sql, _build_like_sql, _build_get_sql helpers
+- **Storage refactor** — extracted _check_file_stale from check_stale (reduces nesting)
+- **Storage refactor** — FTS triggers extracted to module-level constant
+- **CLI** — list command preserved as alias for collection list
+
+### Fixed
+- **QMD references removed** — all "QMD" mentions cleaned from uri.py, conflicts.py
+- **benchmark.py** — excluded from wheel package, docstring explains corpus
+- **ruff format** — 4 files reformatted for CI compliance
+- **mypy errors** — union-attr and arg-type errors fixed in cli.py
+
+### Security
+- **Path traversal** — _index_file validates resolved path stays within repo_dir
+- **Symlink check** — _check_file_stale skips symlinks
+
 ## [0.5.0] - 2026-07-18
 
 ### Added
