@@ -551,7 +551,10 @@ class TestUpdateDelete:
 
     def test_search_with_min_score(self, tmp_storage):
         conn = tmp_storage._get_conn()
-        conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "FastAPI tutorial guide", "FastAPI"))
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "FastAPI tutorial guide", "FastAPI"),
+        )
         conn.commit()
         result = tmp_storage.search("FastAPI", min_score=0.9)
         assert result.is_ok
@@ -560,7 +563,10 @@ class TestUpdateDelete:
     def test_search_with_limit(self, tmp_storage):
         conn = tmp_storage._get_conn()
         for i in range(5):
-            conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", f"doc{i}.md", f"Content {i}", f"Doc {i}"))
+            conn.execute(
+                "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+                ("test", f"doc{i}.md", f"Content {i}", f"Doc {i}"),
+            )
         conn.commit()
         result = tmp_storage.search("content", limit=2)
         assert result.is_ok
@@ -568,14 +574,19 @@ class TestUpdateDelete:
 
     def test_search_hybrid_strategy(self, tmp_storage):
         conn = tmp_storage._get_conn()
-        conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "FastAPI middleware authentication", "Auth"))
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "FastAPI middleware authentication", "Auth"),
+        )
         conn.commit()
         result = tmp_storage.search("FastAPI middleware", strategy="hybrid")
         assert result.is_ok
 
     def test_search_vector_strategy(self, tmp_storage):
         conn = tmp_storage._get_conn()
-        conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "FastAPI middleware", "Auth"))
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "FastAPI middleware", "Auth")
+        )
         conn.commit()
         result = tmp_storage.search("middleware", strategy="vector")
         assert result.is_ok

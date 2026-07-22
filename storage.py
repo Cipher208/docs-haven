@@ -280,7 +280,28 @@ class Storage:
         except ValueError:
             return 0
         # Skip binary files
-        _BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".pyc", ".pyo", ".so", ".dll", ".exe", ".bin", ".whl", ".zip", ".tar", ".gz"}
+        _BINARY_SUFFIXES = {
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".svg",
+            ".ico",
+            ".woff",
+            ".woff2",
+            ".ttf",
+            ".eot",
+            ".pyc",
+            ".pyo",
+            ".so",
+            ".dll",
+            ".exe",
+            ".bin",
+            ".whl",
+            ".zip",
+            ".tar",
+            ".gz",
+        }
         if f.suffix.lower() in _BINARY_SUFFIXES:
             return 0
         content = f.read_text(errors="ignore")
@@ -488,7 +509,7 @@ class Storage:
             for t in tokens:
                 # Escape double quotes and strip FTS5 operators
                 t = t.replace('"', '""')
-                t = re.sub(r'[*+^~:{}]|\b(OR|AND|NEAR|NOT)\b', '', t, flags=re.IGNORECASE)
+                t = re.sub(r"[*+^~:{}]|\b(OR|AND|NEAR|NOT)\b", "", t, flags=re.IGNORECASE)
                 if t.strip():
                     sanitized.append(f'"{t.strip()}"')
             fts_query = " ".join(sanitized) if sanitized else '""'
@@ -645,16 +666,12 @@ class Storage:
         conn = self._get_conn()
         try:
             # Check if old collection exists
-            count = conn.execute(
-                "SELECT COUNT(*) FROM documents WHERE collection = ?", (old_name,)
-            ).fetchone()[0]
+            count = conn.execute("SELECT COUNT(*) FROM documents WHERE collection = ?", (old_name,)).fetchone()[0]
             if count == 0:
                 return Err(error=f"Collection not found: {old_name}")
 
             # Check if new name already exists
-            existing = conn.execute(
-                "SELECT COUNT(*) FROM documents WHERE collection = ?", (new_name,)
-            ).fetchone()[0]
+            existing = conn.execute("SELECT COUNT(*) FROM documents WHERE collection = ?", (new_name,)).fetchone()[0]
             if existing > 0:
                 return Err(error=f"Collection already exists: {new_name}")
 
@@ -723,9 +740,7 @@ class Storage:
                     (collection,),
                 ).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT collection, file_path, title, content FROM documents WHERE chunk_index = 0"
-                ).fetchall()
+                rows = conn.execute("SELECT collection, file_path, title, content FROM documents WHERE chunk_index = 0").fetchall()
             return Ok(
                 value=[
                     {
@@ -866,9 +881,7 @@ class Storage:
         """List all context attachments."""
         conn = self._get_conn()
         try:
-            rows = conn.execute(
-                "SELECT collection, path, summary, created_at FROM context_attachments ORDER BY collection, path"
-            ).fetchall()
+            rows = conn.execute("SELECT collection, path, summary, created_at FROM context_attachments ORDER BY collection, path").fetchall()
             return Ok(value=[dict(r) for r in rows])
         except sqlite3.Error as e:
             logger.debug("List contexts failed: %s", e)

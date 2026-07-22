@@ -15,9 +15,11 @@ class TestExportImport:
     def test_export_json(self, tmp_path: Path, capsys):
         """Test export in JSON format."""
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc1.md", "content": "Content 1", "title": "Doc 1"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc1.md", "content": "Content 1", "title": "Doc 1"},
+            ]
+        )
         with patch("cli.get_storage", return_value=storage):
             with patch("sys.argv", ["cli", "export", "--format", "json"]):
                 main()
@@ -29,9 +31,11 @@ class TestExportImport:
     def test_export_csv(self, tmp_path: Path, capsys):
         """Test export in CSV format."""
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc1.md", "content": "Content 1", "title": "Doc 1"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc1.md", "content": "Content 1", "title": "Doc 1"},
+            ]
+        )
         with patch("cli.get_storage", return_value=storage):
             with patch("sys.argv", ["cli", "export", "--format", "csv"]):
                 main()
@@ -42,9 +46,13 @@ class TestExportImport:
     def test_import_json(self, tmp_path: Path, capsys):
         """Test import from JSON file."""
         export_file = tmp_path / "backup.json"
-        export_file.write_text(json.dumps([
-            {"collection": "imported", "path": "doc.md", "content": "Imported content", "title": "Imported"},
-        ]))
+        export_file.write_text(
+            json.dumps(
+                [
+                    {"collection": "imported", "path": "doc.md", "content": "Imported content", "title": "Imported"},
+                ]
+            )
+        )
         with patch("cli.get_storage") as mock:
             mock.return_value.bulk_insert.return_value = Ok(value=1)
             with patch("sys.argv", ["cli", "import", str(export_file)]):

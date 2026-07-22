@@ -10,9 +10,11 @@ from storage import Storage
 class TestRenameCollection:
     def test_rename_basic(self, tmp_path: Path):
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "old", "path": "doc.md", "content": "test", "title": "Test"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "old", "path": "doc.md", "content": "test", "title": "Test"},
+            ]
+        )
         result = storage.rename_collection("old", "new")
         assert result.is_ok
         assert result.value["from"] == "old"
@@ -36,10 +38,12 @@ class TestRenameCollection:
 
     def test_rename_to_existing(self, tmp_path: Path):
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "a", "path": "doc.md", "content": "test", "title": "A"},
-            {"collection": "b", "path": "doc.md", "content": "test", "title": "B"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "a", "path": "doc.md", "content": "test", "title": "A"},
+                {"collection": "b", "path": "doc.md", "content": "test", "title": "B"},
+            ]
+        )
         result = storage.rename_collection("a", "b")
         assert result.is_err
         assert "already exists" in result.error
@@ -56,9 +60,11 @@ class TestRenameCollection:
 
     def test_rename_preserves_context(self, tmp_path: Path):
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "old", "path": "doc.md", "content": "test", "title": "Test"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "old", "path": "doc.md", "content": "test", "title": "Test"},
+            ]
+        )
         storage.add_context("old", "overview", "Summary")
         result = storage.rename_collection("old", "new")
         assert result.is_ok
