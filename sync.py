@@ -175,7 +175,7 @@ class Syncer:
                 result["chunks_skipped"] += 1
                 continue
 
-            # Guard against oversized chunks (max 10MB uncompressed)
+            # Guard against oversized chunks (max 10MB compressed, ~30MB uncompressed)
             if chunk_path.stat().st_size > 10 * 1024 * 1024:
                 result["chunks_skipped"] += 1
                 continue
@@ -219,8 +219,16 @@ class Syncer:
         }
 
     def _write_manifest(self, manifest: Manifest) -> None:
-        with open(self.manifest_path, "w") as f:
-            json.dump(manifest.to_dict(), f, indent=2)
+        """Atomic write: temp file + rename."""
+        tmp_path = self.manifest_path.with_suffix(".tmp")
+        try:
+            with open(tmp_path, "w") as f:
+                json.dump(manifest.to_dict(), f, indent=2)
+            tmp_path.replace(self.manifest_path)
+        except OSError:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
 
 
 def get_username() -> str:

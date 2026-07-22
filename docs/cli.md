@@ -6,6 +6,8 @@ DocsHaven provides a command-line interface for managing your knowledge base.
 
 ```bash
 pip install docs-haven
+# or with uv (recommended)
+uv pip install docs-haven
 ```
 
 The `docs-haven` command becomes available globally.
@@ -70,6 +72,63 @@ docs-haven list
   guide__pytest: 12 docs, 35 chunks
 ```
 
+### collection
+
+Manage collections.
+
+```bash
+# List all collections
+docs-haven collection list
+
+# Show collection details
+docs-haven collection show core__fastapi
+
+# Rename a collection
+docs-haven collection rename old_name new_name
+
+# Remove a collection (deletes all documents, contexts, and conflicts)
+docs-haven collection remove old_name
+```
+
+### context
+
+Manage context attachments (human-written summaries).
+
+```bash
+# Add a context attachment
+docs-haven context add core__fastapi overview "FastAPI is a modern web framework"
+
+# List all contexts
+docs-haven context list
+
+# List contexts for a specific collection
+docs-haven context list --collection core__fastapi
+
+# Remove a context
+docs-haven context rm core__fastapi --path overview
+```
+
+### export
+
+Export the knowledge base to a file.
+
+```bash
+docs-haven export --format json > backup.json
+docs-haven export --format csv > backup.csv
+docs-haven export --format md > backup.md
+```
+
+**Options:**
+- `--format`: Output format — `json` (default), `csv`, `md`
+
+### import
+
+Import from a JSON backup file.
+
+```bash
+docs-haven import backup.json
+```
+
 ### delete
 
 Delete a document from the knowledge base.
@@ -120,6 +179,13 @@ docs-haven search "dependency injection"
 # Check what's in your knowledge base
 docs-haven stats
 docs-haven list
+
+# Add context to a collection
+docs-haven context add core__fastapi overview "Modern Python web framework"
+
+# Export and import
+docs-haven export --format json > backup.json
+docs-haven import backup.json
 
 # Start MCP server for remote access
 docs-haven serve --port 8080

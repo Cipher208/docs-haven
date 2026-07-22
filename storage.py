@@ -438,6 +438,8 @@ class Storage:
                 logger.debug("VectorIndex not available, falling back to FTS5")
                 strategy = "fts"
 
+        # Cap intermediate results to prevent unbounded memory
+        max_intermediate = limit * 3
         results = self._search_fts5(query, collections, limit * 2)
 
         if strategy == "hybrid" and len(results) < limit:
@@ -449,7 +451,7 @@ class Storage:
                 vec_results = vi.search(query, limit=limit, min_score=min_score)
                 seen = {r["path"] for r in results}
                 for r in vec_results:
-                    if r["path"] not in seen:
+                    if r["path"] not in seen and len(results) < max_intermediate:
                         results.append(r)
                         seen.add(r["path"])
             except ImportError:
@@ -600,18 +602,32 @@ class Storage:
     def update_document(self, file_path: str, content: str, title: str | None = None) -> Ok[dict] | Err:
         conn = self._get_conn()
         try:
-            if title:
+            # Read existing data before deletion
+            existing = conn.execute(
+                "SELECT collection, title FROM documents WHERE file_path = ? AND chunk_index = 0",
+                (file_path,),
+            ).fetchone()
+            collection = existing["collection"] if existing else ""
+            original_title = existing["title"] if existing else ""
+
+            # Delete all existing chunks
+            conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
+
+            # Re-chunk the content
+            chunks = auto_chunk(content)
+            content_hash = hashlib.sha256(content.encode()).hexdigest()
+            final_title = title if title is not None else original_title
+
+            # Re-insert chunks
+            for i, chunk in enumerate(chunks):
                 conn.execute(
-                    "UPDATE documents SET content = ?, title = ?, updated_at = datetime('now') WHERE file_path = ?",
-                    (content, title, file_path),
-                )
-            else:
-                conn.execute(
-                    "UPDATE documents SET content = ?, updated_at = datetime('now') WHERE file_path = ?",
-                    (content, file_path),
+                    """INSERT OR REPLACE INTO documents
+                    (collection, file_path, content, content_hash, title, chunk_index, total_chunks)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (collection, file_path, chunk, content_hash, final_title, i, len(chunks)),
                 )
             conn.commit()
-            return Ok(value={"status": "updated", "file_path": file_path})
+            return Ok(value={"status": "updated", "file_path": file_path, "chunks": len(chunks)})
         except sqlite3.Error as e:
             logger.debug("Update failed: %s", e)
             return Err(error=str(e))

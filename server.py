@@ -159,6 +159,18 @@ async def kb_delete(file_path: str, collection: str | None = None) -> dict:
         collection: Optional collection scope (prevents cross-collection deletes)
     """
     storage = _get_storage()
+    if collection:
+        # Collection-scoped delete: only delete from specified collection
+        conn = storage._get_conn()
+        try:
+            conn.execute(
+                "DELETE FROM documents WHERE file_path = ? AND collection = ?",
+                (file_path, collection),
+            )
+            conn.commit()
+            return {"status": "deleted", "file_path": file_path, "collection": collection}
+        except Exception as e:
+            return {"error": str(e)}
     result = storage.delete_document(file_path)
     return _unwrap(result)
 
