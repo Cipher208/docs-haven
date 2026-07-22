@@ -12,6 +12,10 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from storage import Storage
 
 
 def _tokenize(text: str) -> list[str]:
@@ -47,7 +51,7 @@ class VectorIndex:
     Optional: only used when strategy='vector' or strategy='hybrid'.
     """
 
-    def __init__(self, storage):
+    def __init__(self, storage: Storage) -> None:
         self.storage = storage
         self._idf: dict[str, float] = {}
         self._doc_vectors: list[dict] = []  # [{id, collection, path, vector, content_preview}]

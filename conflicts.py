@@ -36,7 +36,7 @@ class ConflictResult(BaseModel):
     def to_dict(self) -> dict:
         return {
             "new_title": self.new_title,
-            "candidates": [vars(c) if hasattr(c, "__dataclass_fields__") else c for c in self.candidates],
+            "candidates": self.candidates,
             "has_conflicts": self.has_conflicts,
             "judgment_required": self.judgment_required,
         }

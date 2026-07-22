@@ -85,6 +85,8 @@ class TestTypeBoost:
 
 class TestStorage:
     def test_init_creates_db(self, tmp_storage):
+        # Lazy init: DB created on first operation
+        tmp_storage.list_documents()
         assert tmp_storage.db_path.exists()
 
     def test_stats_empty(self, tmp_storage):

@@ -185,7 +185,7 @@ class Storage:
         self.repos_dir.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
         self._conn_lock = threading.Lock()
-        self._init_db()
+        self._db_initialized = False
 
     def close(self) -> None:
         if self._conn is not None:
@@ -209,10 +209,15 @@ class Storage:
             conn.execute("PRAGMA temp_store=MEMORY")
             conn.execute("PRAGMA mmap_size=268435456")
             self._conn = conn
+            # Lazy init: create tables on first connection
+            if not self._db_initialized:
+                self._init_db()
+                self._db_initialized = True
             return self._conn
 
     def _init_db(self):
-        conn = self._get_conn()
+        conn = self._conn
+        assert conn is not None, "_init_db called before connection established"
         conn.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -445,6 +450,8 @@ class Storage:
         return Ok(value=results[:limit])
 
     def _row_to_result(self, row: sqlite3.Row, source: str, highlighted: str | None = None, score: float | None = None) -> dict:
+        # Handle rank column gracefully (may not exist in LIKE/get queries)
+        rank = row["rank"] if "rank" in row.keys() else None
         return {
             "path": f"{row['collection']}/{row['file_path']}",
             "content": row["content"][:500],
@@ -453,7 +460,7 @@ class Storage:
             "title": row["title"],
             "chunk": row["chunk_index"],
             "total_chunks": row["total_chunks"],
-            "score": score if score is not None else (round(-row["rank"], 3) if row["rank"] else 0),
+            "score": score if score is not None else (round(-rank, 3) if rank else 0),
             "source": source,
         }
 
