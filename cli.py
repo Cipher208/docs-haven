@@ -141,6 +141,77 @@ def cmd_delete(args: argparse.Namespace) -> None:
     print(f"Deleted: {result.value['file_path']}")  # type: ignore[union-attr]
 
 
+def cmd_context(args: argparse.Namespace) -> None:
+    """Context attachment management."""
+    storage = get_storage()
+
+    if args.subcmd == "add":
+        result = storage.add_context(args.collection, args.path, args.summary)
+        if result.is_err:  # type: ignore[union-attr]
+            print(f"Error: {result.error}")  # type: ignore[union-attr]
+            sys.exit(1)
+        print(f"Added context: {args.collection}/{args.path}")
+
+    elif args.subcmd == "list":
+        ctx_result = storage.list_contexts()
+        if ctx_result.is_err:  # type: ignore[union-attr]
+            print(f"Error: {ctx_result.error}")  # type: ignore[union-attr]
+            sys.exit(1)
+        for c in ctx_result.value:  # type: ignore[union-attr]
+            print(f"  [{c['collection']}] {c['path']}: {c['summary'][:80]}...")
+
+    elif args.subcmd == "rm":
+        result = storage.remove_context(args.collection, getattr(args, "path", None))
+        if result.is_err:  # type: ignore[union-attr]
+            print(f"Error: {result.error}")  # type: ignore[union-attr]
+            sys.exit(1)
+        print(f"Removed context from: {args.collection}")
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    """Export knowledge base."""
+    import csv
+    import json
+    import sys as _sys
+
+    storage = get_storage()
+    result = storage.list_documents()
+    if result.is_err:  # type: ignore[union-attr]
+        print(f"Error: {result.error}")  # type: ignore[union-attr]
+        sys.exit(1)
+
+    data = result.value  # type: ignore[union-attr]
+
+    if args.format == "json":
+        _sys.stdout.write(json.dumps(data, indent=2))
+    elif args.format == "csv":
+        writer = csv.DictWriter(_sys.stdout, fieldnames=["collection", "path", "title", "content"])
+        writer.writeheader()
+        writer.writerows(data)
+    elif args.format == "md":
+        for item in data:
+            _sys.stdout.write(f"# {item['title']}\n\n{item['content']}\n\n---\n\n")
+
+
+def cmd_import(args: argparse.Namespace) -> None:
+    """Import from JSON backup."""
+    import json
+
+    storage = get_storage()
+    with open(args.file) as f:
+        data = json.load(f)
+
+    for item in data:
+        storage.bulk_insert([{
+            "collection": item.get("collection", ""),
+            "path": item.get("path", ""),
+            "content": item.get("content", ""),
+            "title": item.get("title", ""),
+        }])
+
+    print(f"Imported {len(data)} documents")
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     """Start MCP server."""
     import uvicorn
@@ -194,6 +265,29 @@ def main() -> None:
     rm_p = col_sub.add_parser("remove", help="Remove a collection")
     rm_p.add_argument("name", help="Collection name")
     sp.set_defaults(func=cmd_collection)
+
+    # context management
+    sp = subparsers.add_parser("context", help="Context attachment management")
+    ctx_sub = sp.add_subparsers(dest="subcmd")
+    ctx_add = ctx_sub.add_parser("add", help="Add context attachment")
+    ctx_add.add_argument("collection", help="Collection name")
+    ctx_add.add_argument("path", help="Context path (e.g., 'overview')")
+    ctx_add.add_argument("summary", help="Summary text")
+    ctx_list = ctx_sub.add_parser("list", help="List context attachments")
+    ctx_list.add_argument("--collection", help="Filter by collection")
+    ctx_rm = ctx_sub.add_parser("rm", help="Remove context attachment")
+    ctx_rm.add_argument("collection", help="Collection name")
+    ctx_rm.add_argument("--path", help="Specific path to remove")
+    sp.set_defaults(func=cmd_context)
+
+    # export/import
+    sp = subparsers.add_parser("export", help="Export knowledge base")
+    sp.add_argument("--format", choices=["json", "csv", "md"], default="json", help="Output format")
+    sp.set_defaults(func=cmd_export)
+
+    sp = subparsers.add_parser("import", help="Import from JSON backup")
+    sp.add_argument("file", help="JSON file to import")
+    sp.set_defaults(func=cmd_import)
 
     # delete
     sp = subparsers.add_parser("delete", help="Delete a document")

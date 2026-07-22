@@ -219,6 +219,18 @@ class Storage:
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
+
+        # Context attachments — human-written summaries for collections
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS context_attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                collection TEXT NOT NULL,
+                path TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(collection, path)
+            )
+        """)
         conn.commit()
 
     def _index_file(self, conn: sqlite3.Connection, f: Path, repo_dir: Path, name: str, description: str | None) -> int:
@@ -569,6 +581,34 @@ class Storage:
             logger.debug("List collections failed: %s", e)
             return Err(error=str(e))
 
+    def list_documents(self, collection: str | None = None) -> Ok[list[dict]] | Err:
+        """List all documents (chunk_index=0) optionally filtered by collection."""
+        conn = self._get_conn()
+        try:
+            if collection:
+                rows = conn.execute(
+                    "SELECT collection, file_path, title, content FROM documents WHERE collection = ? AND chunk_index = 0",
+                    (collection,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT collection, file_path, title, content FROM documents WHERE chunk_index = 0"
+                ).fetchall()
+            return Ok(
+                value=[
+                    {
+                        "collection": r["collection"],
+                        "path": f"{r['collection']}/{r['file_path']}",
+                        "title": r["title"],
+                        "content": r["content"],
+                    }
+                    for r in rows
+                ]
+            )
+        except sqlite3.Error as e:
+            logger.debug("List documents failed: %s", e)
+            return Err(error=str(e))
+
     def stats(self) -> Ok[dict] | Err:
         conn = self._get_conn()
         try:
@@ -646,6 +686,80 @@ class Storage:
             return Ok(value=stale)
         except (sqlite3.Error, OSError) as e:
             logger.debug("Stale check failed: %s", e)
+            return Err(error=str(e))
+
+    # ── Context Attachments ──────────────────────────────────────────────────
+
+    def add_context(self, collection: str, path: str, summary: str) -> Ok[dict] | Err:
+        """Add a context attachment (human-written summary) to a collection."""
+        coll_error = validate_collection(collection)
+        if coll_error:
+            return Err(error=coll_error)
+        if not path.strip():
+            return Err(error="Context path cannot be empty")
+        if not summary.strip():
+            return Err(error="Context summary cannot be empty")
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO context_attachments (collection, path, summary) VALUES (?, ?, ?)",
+                (collection, path.strip(), summary.strip()),
+            )
+            conn.commit()
+            return Ok(value={"status": "added", "collection": collection, "path": path.strip()})
+        except sqlite3.Error as e:
+            logger.debug("Add context failed: %s", e)
+            return Err(error=str(e))
+
+    def get_context(self, collection: str, path: str | None = None) -> Ok[list[dict]] | Err:
+        """Get context attachments for a collection."""
+        conn = self._get_conn()
+        try:
+            if path:
+                rows = conn.execute(
+                    "SELECT * FROM context_attachments WHERE collection = ? AND path = ?",
+                    (collection, path.strip()),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM context_attachments WHERE collection = ?",
+                    (collection,),
+                ).fetchall()
+            return Ok(value=[dict(r) for r in rows])
+        except sqlite3.Error as e:
+            logger.debug("Get context failed: %s", e)
+            return Err(error=str(e))
+
+    def list_contexts(self) -> Ok[list[dict]] | Err:
+        """List all context attachments."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT collection, path, summary, created_at FROM context_attachments ORDER BY collection, path"
+            ).fetchall()
+            return Ok(value=[dict(r) for r in rows])
+        except sqlite3.Error as e:
+            logger.debug("List contexts failed: %s", e)
+            return Err(error=str(e))
+
+    def remove_context(self, collection: str, path: str | None = None) -> Ok[dict] | Err:
+        """Remove context attachment(s)."""
+        conn = self._get_conn()
+        try:
+            if path:
+                conn.execute(
+                    "DELETE FROM context_attachments WHERE collection = ? AND path = ?",
+                    (collection, path.strip()),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM context_attachments WHERE collection = ?",
+                    (collection,),
+                )
+            conn.commit()
+            return Ok(value={"status": "removed", "collection": collection})
+        except sqlite3.Error as e:
+            logger.debug("Remove context failed: %s", e)
             return Err(error=str(e))
 
 

@@ -271,6 +271,54 @@ async def kb_conflict_judge(
     return _get_detector().judge(new_id, candidate_id, judgment)
 
 
+# ── Context Attachments ────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def kb_context_add(
+    collection: str,
+    path: str,
+    summary: str,
+) -> dict:
+    """Add a context attachment (human-written summary) to a collection.
+
+    Args:
+        collection: Collection name
+        path: Context path (e.g., 'overview', 'quickstart')
+        summary: Human-written summary text
+    """
+    return _unwrap(_get_storage().add_context(collection, path, summary))
+
+
+@mcp.tool()
+async def kb_context_list(
+    collection: str | None = None,
+) -> list[dict] | dict:
+    """List context attachments.
+
+    Args:
+        collection: Filter by collection (optional, lists all if omitted)
+    """
+    storage = _get_storage()
+    if collection:
+        return _unwrap(storage.get_context(collection))
+    return _unwrap(storage.list_contexts())
+
+
+@mcp.tool()
+async def kb_context_rm(
+    collection: str,
+    path: str | None = None,
+) -> dict:
+    """Remove context attachment(s).
+
+    Args:
+        collection: Collection name
+        path: Specific path to remove (optional, removes all in collection if omitted)
+    """
+    return _unwrap(_get_storage().remove_context(collection, path))
+
+
 if __name__ == "__main__":
     import atexit
     import sys
