@@ -32,6 +32,7 @@ _MAX_QUERY_LENGTH = 10000
 _MAX_FTS5_TOKENS = 100
 _MAX_SEARCH_LIMIT = 1000
 _VALID_URL_SCHEMES = ("https://", "http://", "git@")
+_ALLOWED_GIT_DOMAINS = {"github.com", "gitlab.com", "bitbucket.org", "codeberg.org"}
 _COLLECTION_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
@@ -47,6 +48,21 @@ def validate_url(url: str) -> str | None:
     # Block URL-encoded traversal
     if "%2e" in url.lower() or "%2f" in url.lower():
         return "URL contains encoded path traversal"
+    # Domain allowlist (prevent SSRF to internal hosts)
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+        domain = parsed.hostname or ""
+        if domain and domain not in _ALLOWED_GIT_DOMAINS:
+            # Allow git@ style URLs (e.g., git@github.com:user/repo.git)
+            if url.startswith("git@"):
+                git_host = url.split("@")[1].split(":")[0] if "@" in url else ""
+                if git_host not in _ALLOWED_GIT_DOMAINS:
+                    return f"Domain not allowed: {git_host}"
+            else:
+                return f"Domain not allowed: {domain}"
+    except Exception:
+        pass
     return None
 
 
