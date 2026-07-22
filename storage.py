@@ -40,6 +40,13 @@ def validate_url(url: str) -> str | None:
         return f"Invalid URL scheme: {url}"
     if len(url) > 2048:
         return "URL too long (max 2048 chars)"
+    # Block shell metacharacters and newlines that could exploit git
+    dangerous_chars = set("\n\r\t`$&|;<>\\")
+    if any(c in url for c in dangerous_chars):
+        return "URL contains dangerous characters"
+    # Block URL-encoded traversal
+    if "%2e" in url.lower() or "%2f" in url.lower():
+        return "URL contains encoded path traversal"
     return None
 
 
@@ -78,6 +85,9 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
         return []
     if len(text) <= chunk_size:
         return [text]
+
+    # Clamp overlap to prevent infinite loop
+    overlap = min(overlap, chunk_size - 1)
 
     chunks = []
     start = 0
@@ -183,24 +193,23 @@ class Storage:
             self._conn = None
 
     def _get_conn(self) -> sqlite3.Connection:
-        if self._conn is not None:
-            try:
-                self._conn.execute("SELECT 1")
-                return self._conn
-            except sqlite3.ProgrammingError:
-                self._conn = None
         with self._conn_lock:
-            if self._conn is None:
-                conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-                conn.row_factory = sqlite3.Row
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA busy_timeout=5000")
-                conn.execute("PRAGMA synchronous=NORMAL")
-                conn.execute("PRAGMA cache_size=-64000")
-                conn.execute("PRAGMA temp_store=MEMORY")
-                conn.execute("PRAGMA mmap_size=268435456")
-                self._conn = conn
-        return self._conn
+            if self._conn is not None:
+                try:
+                    self._conn.execute("SELECT 1")
+                    return self._conn
+                except sqlite3.ProgrammingError:
+                    self._conn = None
+            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA cache_size=-64000")
+            conn.execute("PRAGMA temp_store=MEMORY")
+            conn.execute("PRAGMA mmap_size=268435456")
+            self._conn = conn
+            return self._conn
 
     def _init_db(self):
         conn = self._get_conn()
@@ -265,6 +274,10 @@ class Storage:
             f.resolve().relative_to(repo_dir.resolve())
         except ValueError:
             return 0
+        # Skip binary files
+        _BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".pyc", ".pyo", ".so", ".dll", ".exe", ".bin", ".whl", ".zip", ".tar", ".gz"}
+        if f.suffix.lower() in _BINARY_SUFFIXES:
+            return 0
         content = f.read_text(errors="ignore")
         rel_path = str(f.relative_to(repo_dir))
         title = f.stem.replace("-", " ").replace("_", " ")
@@ -291,6 +304,10 @@ class Storage:
             return Err(error=url_error)
 
         name = url.rstrip("/").split("/")[-1].replace(".git", "")
+        # Validate derived collection name
+        name_error = validate_collection(name)
+        if name_error:
+            return Err(error=f"Invalid collection name from URL: {name_error}")
         repo_dir = self.repos_dir / name
 
         if not repo_dir.exists():
@@ -309,7 +326,22 @@ class Storage:
         mask_error = validate_file_mask(file_mask)
         if mask_error:
             return Err(error=mask_error)
-        files = [f for f in repo_dir.glob(file_mask) if f.is_file() and f.stat().st_size < 500_000]
+        # Filter out symlinks and paths that resolve outside repo_dir
+        resolved_root = repo_dir.resolve()
+        files = []
+        for f in repo_dir.glob(file_mask):
+            if not f.is_file():
+                continue
+            if f.is_symlink():
+                continue
+            try:
+                resolved = f.resolve()
+                if not str(resolved).startswith(str(resolved_root)):
+                    continue
+                if f.stat().st_size < 500_000:
+                    files.append(f)
+            except OSError:
+                continue
         indexed = 0
         total_chunks = 0
 
@@ -443,8 +475,16 @@ class Storage:
     def _search_fts5(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
         conn = self._get_conn()
         try:
+            # Sanitize tokens: escape FTS5 special characters
             tokens = query.split()
-            fts_query = " ".join(f'"{t.replace(chr(34), chr(34) + chr(34))}"' for t in tokens) if tokens else '""'
+            sanitized = []
+            for t in tokens:
+                # Escape double quotes and strip FTS5 operators
+                t = t.replace('"', '""')
+                t = re.sub(r'[*+^~:{}]|\b(OR|AND|NEAR|NOT)\b', '', t, flags=re.IGNORECASE)
+                if t.strip():
+                    sanitized.append(f'"{t.strip()}"')
+            fts_query = " ".join(sanitized) if sanitized else '""'
             sql_suffix, extra_params = self._build_fts_sql(collections)
             params = [fts_query] + extra_params + [limit]
             rows = conn.execute(sql_suffix, params).fetchall()

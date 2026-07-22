@@ -119,11 +119,13 @@ def cmd_collection(args: argparse.Namespace) -> None:
         print(f"Collection not found: {args.name}")
 
     elif args.subcmd == "remove":
-        # Delete all documents in a collection
+        # Delete all documents, contexts, and conflicts for a collection
         storage = get_storage()
         conn = storage._get_conn()
         try:
             conn.execute("DELETE FROM documents WHERE collection = ?", (args.name,))
+            conn.execute("DELETE FROM context_attachments WHERE collection = ?", (args.name,))
+            conn.execute("DELETE FROM conflict_judgments WHERE new_id = ? OR candidate_id = ?", (args.name, args.name))
             conn.commit()
             print(f"Removed collection: {args.name}")
         except Exception as e:

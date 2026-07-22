@@ -20,8 +20,23 @@ mcp = FastMCP("docs-haven")
 def _unwrap(result) -> dict:
     """Unwrap a Result at the MCP boundary. Returns value or error dict."""
     if result.is_err:  # type: ignore[union-attr]
-        return {"error": result.error}  # type: ignore[union-attr]
+        return {"error": result.error, "code": getattr(result, "code", None)}  # type: ignore[union-attr]
     return result.value  # type: ignore[union-attr]
+
+
+def _is_unsafe_path(path: str) -> bool:
+    """Check if a path contains traversal or injection attempts."""
+    if ".." in path:
+        return True
+    if path.startswith("/"):
+        return True
+    if "\x00" in path:
+        return True
+    if "\\" in path:
+        return True
+    if "%2e" in path.lower() or "%2f" in path.lower():
+        return True
+    return False
 
 
 # Thread-safe singleton: double-checked locking pattern.
@@ -113,7 +128,7 @@ async def kb_get(file_path: str) -> dict:
         file_path: Document path (e.g., 'repo/README.md')
     """
     # Path traversal protection
-    if ".." in file_path or file_path.startswith("/"):
+    if _is_unsafe_path(file_path):
         return {"error": "Invalid file path"}
     result = _get_storage().get(file_path)
     return _unwrap(result)
