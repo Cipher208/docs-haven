@@ -504,7 +504,7 @@ class TestUpdateDelete:
         assert result.is_ok
         assert len(result.value) == 1
 
-    def test_update_document_with_title(self, tmp_storage):
+    def test_update_document_with_title_v2(self, tmp_storage):
         conn = tmp_storage._get_conn()
         conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "old", "Old"))
         conn.commit()
@@ -525,7 +525,7 @@ class TestUpdateDelete:
         assert result.is_ok
         assert result.value == 0
 
-    def test_stats_with_data(self, tmp_storage):
+    def test_stats_with_data_v2(self, tmp_storage):
         conn = tmp_storage._get_conn()
         conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "content", "Title"))
         conn.commit()
@@ -578,7 +578,7 @@ class TestUpdateDelete:
         result = tmp_storage.search("middleware", strategy="vector")
         assert result.is_ok
 
-    def test_add_repo_invalid_url(self, tmp_storage):
+    def test_add_repo_invalid_url_v2(self, tmp_storage):
         result = tmp_storage.add_repo("ftp://invalid.com/repo")
         assert result.is_err
 
