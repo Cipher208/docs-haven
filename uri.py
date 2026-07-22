@@ -40,14 +40,14 @@ class URI:
         return cls(domain=domain, path=path, raw=f"{domain}://{path}")
 
     def to_collection(self) -> str:
-        """Map URI to QMD collection name: 'core://fastapi/deps' -> 'core__fastapi'"""
+        """Map URI to collection name: 'core://fastapi/deps' -> 'core__fastapi'"""
         parts = self.path.split("/")
         if len(parts) >= 1 and parts[0]:
             return f"{self.domain}__{parts[0]}"
         return f"{self.domain}__root"
 
     def to_file_pattern(self) -> str:
-        """Map URI to file glob pattern for QMD search."""
+        """Map URI to file glob pattern for search."""
         return f"**/{self.path}*"
 
     def __str__(self) -> str:
@@ -61,7 +61,7 @@ class URI:
 
 
 class URIRouter:
-    """Maps URIs to QMD collections and provides structured access."""
+    """Maps URIs to collections and provides structured access."""
 
     DOMAIN_DOCS = {
         "core": "Core documentation - primary source of truth",

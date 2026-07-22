@@ -325,10 +325,35 @@ class Storage:
         if strategy is None:
             strategy = auto_strategy(query)
 
+        # Vector search (optional — requires VectorIndex)
+        if strategy == "vector":
+            try:
+                from vector import VectorIndex
+                vi = VectorIndex(self)
+                results = vi.search(query, limit=limit, min_score=min_score)
+                return Ok(value=results)
+            except ImportError:
+                logger.debug("VectorIndex not available, falling back to FTS5")
+                strategy = "fts"
+
         results = self._search_fts5(query, collections, limit * 2)
 
         if strategy == "hybrid" and len(results) < limit:
-            results = self._merge_hybrid(results, query, collections, limit)
+            # Try vector search in hybrid mode
+            try:
+                from vector import VectorIndex
+                vi = VectorIndex(self)
+                vec_results = vi.search(query, limit=limit, min_score=min_score)
+                seen = {r["path"] for r in results}
+                for r in vec_results:
+                    if r["path"] not in seen:
+                        results.append(r)
+                        seen.add(r["path"])
+            except ImportError:
+                pass
+            # Also try LIKE fallback
+            if len(results) < limit:
+                results = self._merge_hybrid(results, query, collections, limit)
 
         for r in results:
             base_score = r.get("score", 0)

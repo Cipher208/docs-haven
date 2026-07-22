@@ -3,7 +3,7 @@
 Pattern from engram: after adding a document, search for similar titles.
 If similar docs exist, flag potential conflicts for human review.
 
-Uses Storage.search() instead of external QMD CLI.
+Uses Storage.search() for internal full-text search.
 """
 
 from __future__ import annotations
