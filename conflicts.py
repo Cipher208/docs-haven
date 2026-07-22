@@ -124,6 +124,11 @@ class ConflictDetector:
         Returns:
             {status: 'recorded', judgment: str}
         """
+        # Validate inputs
+        if not new_id or not new_id.strip():
+            return {"error": "new_id cannot be empty"}
+        if not candidate_id or not candidate_id.strip():
+            return {"error": "candidate_id cannot be empty"}
         valid_judgments = {"supersedes", "conflicts_with", "unrelated"}
         if judgment not in valid_judgments:
             return {"error": f"Invalid judgment. Must be one of: {sorted(valid_judgments)}"}

@@ -304,6 +304,12 @@ class Storage:
         }
         if f.suffix.lower() in _BINARY_SUFFIXES:
             return 0
+        # Size guard — skip files over 500KB
+        try:
+            if f.stat().st_size > 500_000:
+                return 0
+        except OSError:
+            return 0
         content = f.read_text(errors="ignore")
         rel_path = str(f.relative_to(repo_dir))
         title = f.stem.replace("-", " ").replace("_", " ")

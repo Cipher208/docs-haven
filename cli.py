@@ -201,8 +201,15 @@ def cmd_import(args: argparse.Namespace) -> None:
     import json
 
     storage = get_storage()
-    with open(args.file) as f:
-        data = json.load(f)
+    try:
+        with open(args.file) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: File not found: {args.file}")
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON: {e}")
+        sys.exit(1)
 
     # Batch insert all documents at once
     docs = [

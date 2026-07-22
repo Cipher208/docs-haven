@@ -108,8 +108,21 @@ class URIRouter:
             # Extract search term from path (e.g., core://fastapi/* → "fastapi")
             search_term = uri.path.rstrip("/*").split("/")[-1] if "/" in uri.path else ""
             if not search_term:
-                # No search term — return all docs in domain via broad query
-                search_term = " OR ".join(collections)
+                # No search term — search each collection individually and merge
+                all_results = []
+                seen = set()
+                for coll in collections:
+                    result = self.storage.search(
+                        query=coll.split("__")[-1] if "__" in coll else "",
+                        collections=[coll],
+                        limit=limit,
+                    )
+                    if result.is_ok:
+                        for r in result.value:
+                            if r["path"] not in seen:
+                                all_results.append(r)
+                                seen.add(r["path"])
+                return all_results[:limit]
             result = self.storage.search(
                 query=search_term,
                 collections=collections,
