@@ -485,3 +485,158 @@ class TestUpdateDelete:
         assert "First part." in result.value["content"]
         assert "Second part." in result.value["content"]
         assert result.value["chunks"] == 2
+
+    def test_list_documents_all(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute("INSERT INTO documents (collection, file_path, content, title, chunk_index) VALUES (?, ?, ?, ?, ?)", ("a", "a.md", "A", "A", 0))
+        conn.execute("INSERT INTO documents (collection, file_path, content, title, chunk_index) VALUES (?, ?, ?, ?, ?)", ("b", "b.md", "B", "B", 0))
+        conn.commit()
+        result = tmp_storage.list_documents()
+        assert result.is_ok
+        assert len(result.value) == 2
+
+    def test_list_documents_by_collection(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute("INSERT INTO documents (collection, file_path, content, title, chunk_index) VALUES (?, ?, ?, ?, ?)", ("a", "a.md", "A", "A", 0))
+        conn.execute("INSERT INTO documents (collection, file_path, content, title, chunk_index) VALUES (?, ?, ?, ?, ?)", ("b", "b.md", "B", "B", 0))
+        conn.commit()
+        result = tmp_storage.list_documents("a")
+        assert result.is_ok
+        assert len(result.value) == 1
+
+    def test_update_document_with_title(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "old", "Old"))
+        conn.commit()
+        result = tmp_storage.update_document("doc.md", "new content", title="New")
+        assert result.is_ok
+
+    def test_delete_nonexistent(self, tmp_storage):
+        result = tmp_storage.delete_document("nonexistent.md")
+        assert result.is_ok  # Delete is idempotent
+
+    def test_record_judgment(self, tmp_storage):
+        result = tmp_storage.record_judgment("new_id", "old_id", "supersedes")
+        assert result.is_ok
+        assert result.value["judgment"] == "supersedes"
+
+    def test_bulk_insert_empty(self, tmp_storage):
+        result = tmp_storage.bulk_insert([])
+        assert result.is_ok
+        assert result.value == 0
+
+    def test_stats_with_data(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "content", "Title"))
+        conn.commit()
+        result = tmp_storage.stats()
+        assert result.is_ok
+        assert result.value["total_documents"] == 1
+
+    def test_config_save_load(self, tmp_storage):
+        config = tmp_storage._load_config()
+        config["repos"]["test"] = {"url": "https://example.com/repo"}
+        tmp_storage._save_config(config)
+        loaded = tmp_storage._load_config()
+        assert loaded["repos"]["test"]["url"] == "https://example.com/repo"
+
+    def test_config_broken_json(self, tmp_path: Path):
+        tmp_path / "config.json"
+        (tmp_path / "config.json").write_text("not json {{{")
+        storage = Storage(tmp_path)
+        config = storage._load_config()
+        assert "repos" in config
+
+    def test_search_with_min_score(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "FastAPI tutorial guide", "FastAPI"))
+        conn.commit()
+        result = tmp_storage.search("FastAPI", min_score=0.9)
+        assert result.is_ok
+        # May or may not find results depending on score threshold
+
+    def test_search_with_limit(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        for i in range(5):
+            conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", f"doc{i}.md", f"Content {i}", f"Doc {i}"))
+        conn.commit()
+        result = tmp_storage.search("content", limit=2)
+        assert result.is_ok
+        assert len(result.value) <= 2
+
+    def test_search_hybrid_strategy(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "FastAPI middleware authentication", "Auth"))
+        conn.commit()
+        result = tmp_storage.search("FastAPI middleware", strategy="hybrid")
+        assert result.is_ok
+
+    def test_search_vector_strategy(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "FastAPI middleware", "Auth"))
+        conn.commit()
+        result = tmp_storage.search("middleware", strategy="vector")
+        assert result.is_ok
+
+    def test_add_repo_invalid_url(self, tmp_storage):
+        result = tmp_storage.add_repo("ftp://invalid.com/repo")
+        assert result.is_err
+
+    def test_add_repo_long_url(self, tmp_storage):
+        result = tmp_storage.add_repo("https://example.com/" + "a" * 2050)
+        assert result.is_err
+
+    def test_add_repo_invalid_mask(self, tmp_storage):
+        result = tmp_storage.add_repo("https://example.com/repo", mask="../../../etc")
+        assert result.is_err
+
+    def test_get_nonexistent(self, tmp_storage):
+        result = tmp_storage.get("nonexistent.md")
+        assert result.is_err
+
+    def test_context_empty_path(self, tmp_storage):
+        result = tmp_storage.add_context("test", "", "summary")
+        assert result.is_err
+
+    def test_context_empty_summary(self, tmp_storage):
+        result = tmp_storage.add_context("test", "path", "")
+        assert result.is_err
+
+    def test_rename_invalid_names(self, tmp_storage):
+        result = tmp_storage.rename_collection("../../../etc", "new")
+        assert result.is_err
+        result = tmp_storage.rename_collection("old", "../../../etc")
+        assert result.is_err
+
+    def test_find_changed_docs_collection(self, tmp_storage):
+        repo_dir = tmp_storage.repos_dir / "test"
+        repo_dir.mkdir()
+        changed = tmp_storage.find_changed_docs("test", repo_dir)
+        assert changed == []
+
+    def test_reindex_invalid_collection(self, tmp_storage):
+        result = tmp_storage.reindex_collection("../../../etc")
+        assert result.is_err
+
+    def test_reindex_missing_repo(self, tmp_storage):
+        result = tmp_storage.reindex_collection("nonexistent")
+        assert result.is_err
+
+    def test_list_documents_empty(self, tmp_storage):
+        result = tmp_storage.list_documents()
+        assert result.is_ok
+        assert result.value == []
+
+    def test_stats_empty(self, tmp_storage):
+        result = tmp_storage.stats()
+        assert result.is_ok
+        assert result.value["total_chunks"] == 0
+
+    def test_close(self, tmp_storage):
+        tmp_storage.close()
+        assert tmp_storage._conn is None
+
+    def test_get_conn_reconnect(self, tmp_storage):
+        tmp_storage.close()
+        conn = tmp_storage._get_conn()
+        assert conn is not None

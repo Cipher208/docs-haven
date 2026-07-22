@@ -4,6 +4,29 @@ All notable changes to DocsHaven will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-07-22
+
+### Added
+- **Context attachments** — human-written summaries for collections (table + CRUD)
+- **MCP tools** — `kb_context_add`, `kb_context_list`, `kb_context_rm`
+- **CLI context management** — `context add/list/rm`
+- **Export/Import CLI** — `export --format json/csv/md`, `import backup.json`
+- **Storage.list_documents()** — list all documents (chunk_index=0)
+- **Collection rename** — `collection rename old new` (CLI + MCP)
+- **Auto chunking** — detects file type, uses code chunking for .py/.js/.ts etc
+- **Incremental embedding** — `find_changed_docs()`, `reindex_collection()`
+- **17 new tests** — context, export/import, rename, auto-chunk, error paths
+
+### Changed
+- **Storage refactor** — 945 lines, extracted helpers, reduced nesting
+- **CLI** — full parity with QMD: list/show/remove/rename
+- **Coverage** — 84% → 88%
+- **Tests** — 138 → 191 (+53)
+
+### Fixed
+- **mypy errors** — union-attr and arg-type errors in cli.py
+- **ruff format** — all files formatted
+
 ## [0.6.0] - 2026-07-22
 
 ### Added

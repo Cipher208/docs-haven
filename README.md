@@ -6,7 +6,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/Cipher208/docs-haven)](https://github.com/Cipher208/docs-haven/commits/main)
 [![CI](https://img.shields.io/github/actions/workflow/status/Cipher208/docs-haven/ci.yml?branch=main)](https://github.com/Cipher208/docs-haven/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](https://codecov.io/gh/Cipher208/docs-haven)
+[![Coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)](https://codecov.io/gh/Cipher208/docs-haven)
 
 > **Your AI agent keeps forgetting what it learned last session. DocsHaven fixes that.**
 
