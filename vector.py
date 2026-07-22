@@ -56,9 +56,7 @@ class VectorIndex:
     def build(self, min_df: int = 1) -> None:
         """Build TF-IDF index from all documents in storage."""
         conn = self.storage._get_conn()
-        rows = conn.execute(
-            "SELECT id, collection, file_path, content, title FROM documents WHERE chunk_index = 0"
-        ).fetchall()
+        rows = conn.execute("SELECT id, collection, file_path, content, title FROM documents WHERE chunk_index = 0").fetchall()
 
         if not rows:
             self._built = True
@@ -82,14 +80,16 @@ class VectorIndex:
         for i, row in enumerate(rows):
             tokens = doc_tokens_list[i]
             vector = _tfidf_vector(tokens, self._idf)
-            self._doc_vectors.append({
-                "id": row["id"],
-                "collection": row["collection"],
-                "path": f"{row['collection']}/{row['file_path']}",
-                "vector": vector,
-                "title": row["title"],
-                "content_preview": row["content"][:200],
-            })
+            self._doc_vectors.append(
+                {
+                    "id": row["id"],
+                    "collection": row["collection"],
+                    "path": f"{row['collection']}/{row['file_path']}",
+                    "vector": vector,
+                    "title": row["title"],
+                    "content_preview": row["content"][:200],
+                }
+            )
 
         self._built = True
 
@@ -111,14 +111,16 @@ class VectorIndex:
         for doc in self._doc_vectors:
             score = _cosine_similarity(query_vector, doc["vector"])
             if score >= min_score:
-                scored.append({
-                    "path": doc["path"],
-                    "collection": doc["collection"],
-                    "title": doc["title"],
-                    "content": doc["content_preview"],
-                    "score": round(score, 4),
-                    "source": "vector",
-                })
+                scored.append(
+                    {
+                        "path": doc["path"],
+                        "collection": doc["collection"],
+                        "title": doc["title"],
+                        "content": doc["content_preview"],
+                        "score": round(score, 4),
+                        "source": "vector",
+                    }
+                )
 
         scored.sort(key=lambda x: -x["score"])
         return scored[:limit]

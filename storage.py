@@ -329,6 +329,7 @@ class Storage:
         if strategy == "vector":
             try:
                 from vector import VectorIndex
+
                 vi = VectorIndex(self)
                 results = vi.search(query, limit=limit, min_score=min_score)
                 return Ok(value=results)
@@ -342,6 +343,7 @@ class Storage:
             # Try vector search in hybrid mode
             try:
                 from vector import VectorIndex
+
                 vi = VectorIndex(self)
                 vec_results = vi.search(query, limit=limit, min_score=min_score)
                 seen = {r["path"] for r in results}

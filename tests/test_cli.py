@@ -104,9 +104,7 @@ def test_cli_search_error():
 def test_cli_collection_list(capsys):
     """Test collection list command."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.list_collections.return_value = Ok(
-            value=[{"name": "core__fastapi", "count": 10, "chunks": 25, "domain": "core"}]
-        )
+        mock.return_value.list_collections.return_value = Ok(value=[{"name": "core__fastapi", "count": 10, "chunks": 25, "domain": "core"}])
         with patch("sys.argv", ["cli", "collection", "list"]):
             main()
     captured = capsys.readouterr()

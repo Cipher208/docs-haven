@@ -34,11 +34,13 @@ class TestVectorIndex:
     def test_build_and_search(self, tmp_path: Path):
         storage = Storage(tmp_path)
         # Add test documents
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc1.md", "content": "FastAPI dependency injection tutorial", "title": "FastAPI Tutorial"},
-            {"collection": "test", "path": "doc2.md", "content": "SQLAlchemy async database patterns", "title": "SQLAlchemy Guide"},
-            {"collection": "test", "path": "doc3.md", "content": "FastAPI middleware authentication", "title": "FastAPI Auth"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc1.md", "content": "FastAPI dependency injection tutorial", "title": "FastAPI Tutorial"},
+                {"collection": "test", "path": "doc2.md", "content": "SQLAlchemy async database patterns", "title": "SQLAlchemy Guide"},
+                {"collection": "test", "path": "doc3.md", "content": "FastAPI middleware authentication", "title": "FastAPI Auth"},
+            ]
+        )
 
         index = VectorIndex(storage)
         index.build()
@@ -55,9 +57,11 @@ class TestVectorIndex:
 
     def test_rebuild(self, tmp_path: Path):
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc1.md", "content": "test content", "title": "Test"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc1.md", "content": "test content", "title": "Test"},
+            ]
+        )
         index = VectorIndex(storage)
         index.build()
         index.rebuild()
@@ -65,9 +69,11 @@ class TestVectorIndex:
 
     def test_search_after_build(self, tmp_path: Path):
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc1.md", "content": "async middleware pattern", "title": "Middleware"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc1.md", "content": "async middleware pattern", "title": "Middleware"},
+            ]
+        )
         index = VectorIndex(storage)
         results = index.search("middleware", limit=1)
         assert len(results) == 1
