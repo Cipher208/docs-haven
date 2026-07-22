@@ -60,7 +60,7 @@ class VectorIndex:
     def build(self, min_df: int = 1) -> None:
         """Build TF-IDF index from all documents in storage."""
         conn = self.storage._get_conn()
-        rows = conn.execute("SELECT id, collection, file_path, content, title FROM documents WHERE chunk_index = 0").fetchall()
+        rows = conn.execute("SELECT id, collection, file_path, content, title, chunk_index FROM documents").fetchall()
 
         if not rows:
             self._built = True
@@ -89,6 +89,7 @@ class VectorIndex:
                     "id": row["id"],
                     "collection": row["collection"],
                     "path": f"{row['collection']}/{row['file_path']}",
+                    "chunk": row["chunk_index"],
                     "vector": vector,
                     "title": row["title"],
                     "content_preview": row["content"][:200],

@@ -119,18 +119,12 @@ def cmd_collection(args: argparse.Namespace) -> None:
         print(f"Collection not found: {args.name}")
 
     elif args.subcmd == "remove":
-        # Delete all documents, contexts, and conflicts for a collection
-        storage = get_storage()
-        conn = storage._get_conn()
-        try:
-            conn.execute("DELETE FROM documents WHERE collection = ?", (args.name,))
-            conn.execute("DELETE FROM context_attachments WHERE collection = ?", (args.name,))
-            conn.execute("DELETE FROM conflict_judgments WHERE new_id = ? OR candidate_id = ?", (args.name, args.name))
-            conn.commit()
-            print(f"Removed collection: {args.name}")
-        except Exception as e:
-            print(f"Error: {e}")
+        # Use storage API for clean removal (including config)
+        remove_result = storage.remove_collection(args.name)
+        if remove_result.is_err:  # type: ignore[union-attr]
+            print(f"Error: {remove_result.error}")  # type: ignore[union-attr]
             sys.exit(1)
+        print(f"Removed collection: {args.name}")
 
     elif args.subcmd == "rename":
         rename_result = storage.rename_collection(args.old_name, args.new_name)

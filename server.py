@@ -115,7 +115,7 @@ async def kb_add_repo(
 
     storage = _get_storage()
     # Run blocking git clone in executor to avoid blocking event loop
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, storage.add_repo, url, tags, description, mask)
     return _unwrap(result)
 
@@ -143,6 +143,8 @@ async def kb_update(file_path: str, content: str, title: str | None = None) -> d
         content: New content for the document
         title: Optional new title
     """
+    if _is_unsafe_path(file_path):
+        return {"error": "Invalid file path"}
     storage = _get_storage()
     result = storage.update_document(file_path, content, title)
     return _unwrap(result)
@@ -249,7 +251,7 @@ async def kb_sync_export(created_by: str | None = None) -> dict:
 @mcp.tool()
 async def kb_sync_import() -> dict:
     """Import compressed chunks from sync directory."""
-    return _get_syncer().import_chunks()
+    return _get_syncer().import_chunks(_get_storage())
 
 
 @mcp.tool()

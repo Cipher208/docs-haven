@@ -140,8 +140,7 @@ def test_cli_collection_show_not_found(capsys):
 def test_cli_collection_remove(capsys):
     """Test collection remove command."""
     with patch("cli.get_storage") as mock:
-        mock.return_value._get_conn.return_value.execute.return_value = None
-        mock.return_value._get_conn.return_value.commit.return_value = None
+        mock.return_value.remove_collection.return_value = Ok(value={"status": "removed", "collection": "test_coll", "documents": 5})
         with patch("sys.argv", ["cli", "collection", "remove", "test_coll"]):
             main()
     captured = capsys.readouterr()

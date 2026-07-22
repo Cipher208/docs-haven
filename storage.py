@@ -362,7 +362,8 @@ class Storage:
                 continue
             try:
                 resolved = f.resolve()
-                if not str(resolved).startswith(str(resolved_root)):
+                # Use Path.parents for proper path containment check
+                if resolved != resolved_root and resolved_root not in resolved.parents:
                     continue
                 if f.stat().st_size < 500_000:
                     files.append(f)
@@ -481,7 +482,7 @@ class Storage:
             "title": row["title"],
             "chunk": row["chunk_index"],
             "total_chunks": row["total_chunks"],
-            "score": score if score is not None else (round(-rank, 3) if rank else 0),
+            "score": score if score is not None else (round(-rank, 3) if rank is not None else 0),
             "source": source,
         }
 
@@ -654,6 +655,39 @@ class Storage:
             logger.debug("Bulk insert failed: %s", e)
             return Err(error=str(e))
 
+    def remove_collection(self, name: str) -> Ok[dict] | Err:
+        """Remove a collection and all associated data."""
+        coll_error = validate_collection(name)
+        if coll_error:
+            return Err(error=coll_error)
+
+        conn = self._get_conn()
+        try:
+            # Count documents before deletion
+            count = conn.execute(
+                "SELECT COUNT(*) FROM documents WHERE collection = ?", (name,)
+            ).fetchone()[0]
+
+            # Delete from all tables
+            conn.execute("DELETE FROM documents WHERE collection = ?", (name,))
+            conn.execute("DELETE FROM context_attachments WHERE collection = ?", (name,))
+            conn.execute(
+                "DELETE FROM conflict_judgments WHERE new_id = ? OR candidate_id = ?",
+                (name, name),
+            )
+            conn.commit()
+
+            # Remove from config
+            config = self._load_config()
+            if "repos" in config and name in config["repos"]:
+                config["repos"].pop(name)
+                self._save_config(config)
+
+            return Ok(value={"status": "removed", "collection": name, "documents": count})
+        except sqlite3.Error as e:
+            logger.debug("Remove collection failed: %s", e)
+            return Err(error=str(e))
+
     def rename_collection(self, old_name: str, new_name: str) -> Ok[dict] | Err:
         """Rename a collection across all documents and config."""
         old_err = validate_collection(old_name)
@@ -688,6 +722,10 @@ class Storage:
             # Rename conflict judgments
             conn.execute(
                 "UPDATE conflict_judgments SET new_id = ? WHERE new_id = ?",
+                (new_name, old_name),
+            )
+            conn.execute(
+                "UPDATE conflict_judgments SET candidate_id = ? WHERE candidate_id = ?",
                 (new_name, old_name),
             )
             conn.commit()
