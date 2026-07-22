@@ -211,7 +211,7 @@ Then ask your agent:
 
 </details>
 
-## MCP Tools (16)
+## MCP Tools (20)
 
 | Tool | Description |
 |------|-------------|
@@ -222,6 +222,10 @@ Then ask your agent:
 | `kb_delete` | Delete document from knowledge base |
 | `kb_list_collections` | List all collections |
 | `kb_stats` | Database statistics |
+| `kb_collection_rename` | Rename a collection |
+| `kb_context_add` | Add context attachment |
+| `kb_context_list` | List context attachments |
+| `kb_context_rm` | Remove context attachment |
 | `kb_uri_resolve` | URI to collection mapping |
 | `kb_uri_search` | Search within URI scope (supports wildcards) |
 | `kb_uri_list` | List URIs in domain |
@@ -285,13 +289,14 @@ No. DocsHaven is fully local. The only network operation is cloning GitHub repos
 
 ```
 docs-haven/
-├── server.py        # MCP server (16 tools)
+├── server.py        # MCP server (20 tools)
 ├── storage.py       # SQLite FTS5 backend + Result types
+├── vector.py        # TF-IDF vector search (optional)
 ├── uri.py           # URI routing
 ├── sync.py          # Git sync (compressed chunks)
 ├── conflicts.py     # Conflict detection
 ├── result.py        # Ok/Err Result type (Pydantic v2)
-├── cli.py           # CLI interface (7 commands)
+├── cli.py           # CLI interface (11 commands)
 ├── benchmark.py     # Performance benchmarks
 ├── tests/           # pytest test suite (120 tests, 82% coverage)
 ├── docs/            # Documentation + 8 ADRs
