@@ -1,5 +1,7 @@
 """URI Routing for DocsHaven — organize knowledge by domain://path."""
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 
@@ -16,7 +18,7 @@ class URI:
     raw: str
 
     @classmethod
-    def parse(cls, uri: str) -> "URI":
+    def parse(cls, uri: str) -> URI:
         """Parse 'core://fastapi/deps' into URI(domain='core', path='fastapi/deps')"""
         m = re.match(r"^([a-zA-Z0-9_-]+)://(.+)$", uri)
         if not m:
@@ -34,7 +36,7 @@ class URI:
         return cls(domain=domain, path=path, raw=uri)
 
     @classmethod
-    def create(cls, domain: str, path: str) -> "URI":
+    def create(cls, domain: str, path: str) -> URI:
         """Create URI from domain and path components."""
         domain = domain.lower().strip()
         path = path.strip("/")
@@ -111,21 +113,14 @@ class URIRouter:
             # Extract search term from path (e.g., core://fastapi/* → "fastapi")
             search_term = uri.path.rstrip("/*").split("/")[-1] if "/" in uri.path else ""
             if not search_term:
-                # No search term — search each collection individually and merge
-                all_results = []
-                seen = set()
-                for coll in collections:
-                    result = self.storage.search(
-                        query=coll.split("__")[-1] if "__" in coll else "",
-                        collections=[coll],
-                        limit=limit,
-                    )
-                    if result.is_ok:
-                        for r in result.value:
-                            if r["path"] not in seen:
-                                all_results.append(r)
-                                seen.add(r["path"])
-                return all_results[:limit]
+                # No search term — single query across all domain collections
+                query_words = [c.split("__")[-1] for c in collections if "__" in c]
+                result = self.storage.search(
+                    query=" ".join(query_words) if query_words else "",
+                    collections=collections,
+                    limit=limit,
+                )
+                return result.value if result.is_ok else []
             result = self.storage.search(
                 query=search_term,
                 collections=collections,
