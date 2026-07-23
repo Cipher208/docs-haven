@@ -100,6 +100,8 @@ CHUNK_OVERLAP = 200
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
     if not text:
         return []
+    if chunk_size <= 0:
+        return [text]
     if len(text) <= chunk_size:
         return [text]
 
@@ -187,6 +189,19 @@ def type_boost(query: str, result: dict) -> float:
 # ── Storage ─────────────────────────────────────────────────────────────────
 
 
+def _collection_row_to_dict(row: sqlite3.Row, ctx_counts: dict) -> dict:
+    coll = row["collection"]
+    parts = coll.split("__")
+    return {
+        "name": coll,
+        "count": row["docs"],
+        "chunks": row["chunks"],
+        "contexts": row["contexts"].split("|") if row["contexts"] else [],
+        "context_count": ctx_counts.get(coll, 0),
+        "domain": parts[0] if len(parts) > 1 and parts[0] in _VALID_DOMAINS else None,
+    }
+
+
 class Storage:
     """SQLite FTS5-backed document storage with smart search strategies."""
 
@@ -237,7 +252,7 @@ class Storage:
                     raise
             return self._conn
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         conn = self._conn
         assert conn is not None, "_init_db called before connection established"
         conn.execute("""
@@ -481,6 +496,8 @@ class Storage:
             # Also try LIKE fallback
             if len(results) < limit:
                 results = self._merge_hybrid(results, query, collections, limit)
+            results.sort(key=lambda r: r.get("score", 0), reverse=True)
+            results = results[:max_intermediate]
 
         for r in results:
             base_score = r.get("score", 0)
@@ -804,16 +821,7 @@ class Storage:
 
             return Ok(
                 value=[
-                    {
-                        "name": r["collection"],
-                        "count": r["docs"],
-                        "chunks": r["chunks"],
-                        "contexts": r["contexts"].split("|") if r["contexts"] else [],
-                        "context_count": ctx_counts.get(r["collection"], 0),
-                        "domain": r["collection"].split("__")[0]
-                        if "__" in r["collection"] and r["collection"].split("__")[0] in _VALID_DOMAINS
-                        else None,
-                    }
+                    _collection_row_to_dict(r, ctx_counts)
                     for r in rows
                 ]
             )
@@ -883,10 +891,10 @@ class Storage:
             try:
                 tmp_path.write_text(json.dumps(config, indent=2))
                 tmp_path.replace(self.config_path)
-            except OSError:
+            except OSError as e:
+                logger.warning("Failed to save config: %s", e)
                 if tmp_path.exists():
-                    tmp_path.unlink()
-                raise
+                    tmp_path.unlink(missing_ok=True)
 
     def _check_file_stale(self, file_path: Path, repo_dir: Path, stored_hash: str) -> dict | None:
         """Check if a single file is stale. Returns finding or None."""
@@ -974,7 +982,10 @@ class Storage:
         """List all context attachments."""
         conn = self._get_conn()
         try:
-            rows = conn.execute("SELECT collection, path, summary, created_at FROM context_attachments ORDER BY collection, path").fetchall()
+            rows = conn.execute(
+                "SELECT collection, path, summary, created_at "
+                "FROM context_attachments ORDER BY collection, path"
+            ).fetchall()
             return Ok(value=[dict(r) for r in rows])
         except sqlite3.Error as e:
             logger.debug("List contexts failed: %s", e)

@@ -68,14 +68,14 @@ class TestDiskFull:
     """Test behavior when disk is full."""
 
     def test_save_config_handles_disk_full(self, chaos_storage):
-        """_save_config should raise OSError on disk full."""
+        """_save_config should log warning on disk full, not raise."""
 
         def mock_write(self, *args, **kwargs):
             raise OSError("No space left on device")
 
         with patch.object(Path, "write_text", mock_write):
-            with pytest.raises(OSError):
-                chaos_storage._save_config({"repos": {}})
+            # Should not raise — M2 changed behavior to log warning instead
+            chaos_storage._save_config({"repos": {}})
 
     def test_add_repo_handles_disk_full(self, chaos_storage):
         """add_repo should return Err on disk full during config save."""
