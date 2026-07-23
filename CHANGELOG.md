@@ -4,6 +4,40 @@ All notable changes to DocsHaven will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-07-23
+
+### Fixed
+- **chunk_text guard** — chunk_size=0 no longer causes infinite loop (M1)
+- **config save** — atomic write failure logged instead of raised (M2)
+- **hybrid search cap** — intermediate results properly sorted and capped (M6)
+- **list_contexts** — long SQL query broken into multi-line (M10)
+- **_init_db** — return type annotation added (M12)
+- **FTS5 sanitization** — query tokens stripped of special characters (L7)
+- **file mask validation** — dangerous characters blocked (L12)
+- **config size limit** — 1MB max prevents memory exhaustion (L17)
+- **_unwrap** — non-Result objects handled gracefully (M4)
+- **kb_check_imports** — repo_root path validated (L8)
+- **kb_update** — 10MB content limit enforced (L16)
+- **CLI delete** — path traversal rejected (L14)
+- **CLI import** — file existence and .json suffix validated (L9)
+- **CLI search** — limit clamped to [1, 1000] (L15)
+- **sync import** — collection names validated against injection (L11)
+- **sync import** — 50MB uncompressed size guard (L10)
+- **sync import** — deprecated time.gmtime replaced (L22)
+- **vector search** — batch processing for large collections (M5)
+- **vector search** — 50k doc auto-build guard (L23)
+- **apply_template** — add_context errors now logged (M3)
+- **_unwrap type** — Any annotation added (M11)
+- **benchmark** — Path.stem instead of string split (M14)
+- **benchmark** — misleading query count fixed (L3)
+- **alias** — fragile "id" → "file_path" removed (L1)
+- **import_guard** — stdlib modules no longer flagged as phantom (L5)
+- **URI parse** — path traversal rejected (L13)
+
+### Changed
+- **Coverage** — 88% → 91%
+- **Tests** — 275 (existing suite updated)
+
 ## [0.7.0] - 2026-07-22
 
 ### Added
