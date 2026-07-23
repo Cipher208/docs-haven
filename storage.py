@@ -426,13 +426,21 @@ class Storage:
             return True
         return False
 
+    @staticmethod
+    def _validate_index_path(file_path: Path, repo_dir: Path) -> str | None:
+        """Validate file path is within repo and not dangerous. Returns error or None."""
+        if file_path.is_symlink():
+            return "skipped_symlink"
+        try:
+            file_path.relative_to(repo_dir)
+        except ValueError:
+            return "path_outside_repo"
+        return None
+
     def _index_file(self, conn: sqlite3.Connection, f: Path, repo_dir: Path, name: str, description: str | None) -> int:
         if self._should_skip_file(f):
             return 0
-        # Path traversal check
-        try:
-            f.resolve().relative_to(repo_dir.resolve())
-        except ValueError:
+        if self._validate_index_path(f, repo_dir) is not None:
             return 0
         # Size guard — skip files over 500KB
         try:
@@ -454,6 +462,53 @@ class Storage:
             )
         return len(chunks)
 
+    def _clone_repo(self, url: str, repo_dir: Path) -> Err | None:
+        """Clone repo into repo_dir. Returns Err on failure, None on success."""
+        if repo_dir.exists():
+            return None
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", url, str(repo_dir)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            if repo_dir.exists():
+                shutil.rmtree(repo_dir, ignore_errors=True)
+            return Err(error=f"Clone failed: {result.stderr}")
+        return None
+
+    def _collect_indexable_files(self, repo_dir: Path, mask: str) -> list[Path]:
+        """Collect files matching mask, excluding symlinks and out-of-repo paths."""
+        resolved_root = repo_dir.resolve()
+        files = []
+        for f in repo_dir.glob(mask):
+            if not f.is_file() or f.is_symlink():
+                continue
+            try:
+                resolved = f.resolve()
+                if resolved != resolved_root and resolved_root not in resolved.parents:
+                    continue
+                if f.stat().st_size < 500_000:
+                    files.append(f)
+            except OSError:
+                continue
+        return files
+
+    def _index_files(self, collection: str, files: list[Path], repo_dir: Path, description: str | None) -> tuple[int, int]:
+        """Index files into DB. Returns (indexed_count, total_chunks)."""
+        conn = self._get_conn()
+        indexed = 0
+        total_chunks = 0
+        for f in files:
+            try:
+                total_chunks += self._index_file(conn, f, repo_dir, collection, description)
+                indexed += 1
+            except (OSError, sqlite3.Error) as e:
+                logger.debug("Skipping %s: %s", f, e)
+        conn.commit()
+        return indexed, total_chunks
+
     def add_repo(
         self,
         url: str,
@@ -466,56 +521,22 @@ class Storage:
             return Err(error=url_error)
 
         name = url.rstrip("/").split("/")[-1].replace(".git", "")
-        # Validate derived collection name
         name_error = validate_collection(name)
         if name_error:
             return Err(error=f"Invalid collection name from URL: {name_error}")
         repo_dir = self.repos_dir / name
 
-        if not repo_dir.exists():
-            result = subprocess.run(
-                ["git", "clone", "--depth", "1", url, str(repo_dir)],
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            if result.returncode != 0:
-                if repo_dir.exists():
-                    shutil.rmtree(repo_dir, ignore_errors=True)
-                return Err(error=f"Clone failed: {result.stderr}")
+        clone_err = self._clone_repo(url, repo_dir)
+        if clone_err:
+            return clone_err
 
         file_mask = mask or "**/*.md"
         mask_error = validate_file_mask(file_mask)
         if mask_error:
             return Err(error=mask_error)
-        # Filter out symlinks and paths that resolve outside repo_dir
-        resolved_root = repo_dir.resolve()
-        files = []
-        for f in repo_dir.glob(file_mask):
-            if not f.is_file():
-                continue
-            if f.is_symlink():
-                continue
-            try:
-                resolved = f.resolve()
-                # Use Path.parents for proper path containment check
-                if resolved != resolved_root and resolved_root not in resolved.parents:
-                    continue
-                if f.stat().st_size < 500_000:
-                    files.append(f)
-            except OSError:
-                continue
-        indexed = 0
-        total_chunks = 0
 
-        conn = self._get_conn()
-        for f in files:
-            try:
-                total_chunks += self._index_file(conn, f, repo_dir, name, description)
-                indexed += 1
-            except (OSError, sqlite3.Error) as e:
-                logger.debug("Skipping %s: %s", f, e)
-        conn.commit()
+        files = self._collect_indexable_files(repo_dir, file_mask)
+        indexed, total_chunks = self._index_files(name, files, repo_dir, description)
 
         config = self._load_config()
         config["repos"][name] = {
@@ -580,6 +601,36 @@ class Storage:
         results.sort(key=lambda r: r.get(_FIELD_SCORE, 0), reverse=True)
         return results[:max_intermediate]
 
+    def _search_vector(self, query: str, limit: int, min_score: float) -> list[dict] | None:
+        """Attempt vector search. Returns results or None if unavailable."""
+        try:
+            from vector import VectorIndex
+
+            vi = VectorIndex(self)
+            return vi.search(query, limit=limit, min_score=min_score)
+        except ImportError:
+            return None
+
+    def _search_strategy(self, query: str, collections: list[str] | None, limit: int, strategy: str, min_score: float) -> list[dict]:
+        """Dispatch to the right search backend based on strategy."""
+        if strategy == "vector":
+            results = self._search_vector(query, limit, min_score)
+            if results is not None:
+                return results
+            strategy = "fts"
+
+        if strategy == "hybrid":
+            return self._run_hybrid_search(query, collections, limit, min_score)
+
+        return self._search_fts5(query, collections, limit)
+
+    def _track_retrieval(self, results: list[dict], limit: int) -> None:
+        """Increment retrieval counts for returned results."""
+        try:
+            self._increment_retrieval([r["path"] for r in results[:limit]])
+        except (sqlite3.Error, KeyError) as e:
+            logger.debug("Retrieval count update failed: %s", e)
+
     def search(
         self,
         query: str,
@@ -598,29 +649,14 @@ class Storage:
         if strategy is None:
             strategy = auto_strategy(query)
 
-        if strategy == "vector":
-            try:
-                from vector import VectorIndex
-
-                vi = VectorIndex(self)
-                results = vi.search(query, limit=limit, min_score=min_score)
-            except ImportError:
-                strategy = "fts"
-                results = self._search_fts5(query, collections, limit)
-        elif strategy == "hybrid":
-            results = self._run_hybrid_search(query, collections, limit, min_score)
-        else:
-            results = self._search_fts5(query, collections, limit)
+        results = self._search_strategy(query, collections, limit, strategy, min_score)
 
         results = self._apply_boosts(results, query, explain)
         results.sort(key=lambda x: -x.get(_FIELD_SCORE, 0))
         if min_score > 0:
             results = [r for r in results if r.get(_FIELD_SCORE, 0) >= min_score]
 
-        try:
-            self._increment_retrieval([r["path"] for r in results[:limit]])
-        except (sqlite3.Error, KeyError) as e:
-            logger.debug("Retrieval count update failed: %s", e)
+        self._track_retrieval(results, limit)
 
         return Ok(value=results[:limit])
 
@@ -1210,28 +1246,26 @@ class Storage:
                 repo_dir = self.repos_dir / collection
 
             stored = {r["file_path"]: r["content_hash"] for r in rows}
+            current = (
+                {
+                    str(f.relative_to(repo_dir)): self._compute_file_hash(f.read_text(errors="ignore"))
+                    for f in repo_dir.glob("**/*")
+                    if f.is_file() and not f.is_symlink()
+                }
+                if repo_dir.exists()
+                else {}
+            )
+
             changed = []
-
-            if repo_dir.exists():
-                current_files = {}
-                for f in repo_dir.glob("**/*"):
-                    if f.is_file() and not f.is_symlink():
-                        rel = str(f.relative_to(repo_dir))
-                        h = hashlib.sha256(f.read_text(errors="ignore").encode()).hexdigest()
-                        current_files[rel] = h
-
-                # Check for changed or deleted files
-                for fp, old_hash in stored.items():
-                    if fp in current_files:
-                        if current_files[fp] != old_hash:
-                            changed.append({"file_path": fp, "old_hash": old_hash, "new_hash": current_files[fp], "status": "changed"})
-                    else:
-                        changed.append({"file_path": fp, "old_hash": old_hash, "new_hash": None, "status": _ACTION_DELETED})
-
-                # Check for added files
-                for fp in current_files:
-                    if fp not in stored:
-                        changed.append({"file_path": fp, "old_hash": None, "new_hash": current_files[fp], "status": _ACTION_ADDED})
+            for fp, old_hash in stored.items():
+                if fp in current:
+                    if current[fp] != old_hash:
+                        changed.append({"file_path": fp, "old_hash": old_hash, "new_hash": current[fp], "status": "changed"})
+                else:
+                    changed.append({"file_path": fp, "old_hash": old_hash, "new_hash": None, "status": _ACTION_DELETED})
+            for fp in current:
+                if fp not in stored:
+                    changed.append({"file_path": fp, "old_hash": None, "new_hash": current[fp], "status": _ACTION_ADDED})
 
             return changed
         except (sqlite3.Error, OSError) as e:
