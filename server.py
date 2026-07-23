@@ -10,6 +10,8 @@ from conflicts import ConflictDetector
 from storage import Storage
 from sync import Syncer, get_username
 from uri import URIRouter
+from alias import alias_args
+from import_guard import check_imports
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("docs-haven")
@@ -191,6 +193,17 @@ async def kb_list_collections() -> list[dict] | dict:
     """List all knowledge base collections with document counts."""
     result = _get_storage().list_collections()
     return _unwrap(result)
+
+
+@mcp.tool()
+async def kb_check_imports(file_path: str, repo_root: str = ".") -> dict:
+    """Validate that imports in a file reference real modules/packages.
+
+    Args:
+        file_path: Path to the file to check (e.g., 'src/app.py')
+        repo_root: Repository root directory (default: current dir)
+    """
+    return check_imports(file_path, repo_root, _get_storage())
 
 
 @mcp.tool()
