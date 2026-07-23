@@ -12,37 +12,32 @@ Features:
 import hashlib
 import json
 import logging
-import math
 import re
 import shutil
 import sqlite3
 import subprocess
 import threading
-import time
 from pathlib import Path
 
+from chunking import _BINARY_SUFFIXES, auto_chunk, chunk_code, chunk_text  # noqa: F401
 from result import Err, Ok
+from scoring import importance_boost, type_boost  # noqa: F401
+from uri import VALID_DOMAINS as _VALID_DOMAINS
+from validation import (
+    _MAX_SEARCH_LIMIT,
+    validate_collection,
+    validate_file_mask,
+    validate_query,
+    validate_url,
+)
 
 logger = logging.getLogger(__name__)
-
-# Valid URI domains for collection naming (imported from uri.py)
-from uri import VALID_DOMAINS as _VALID_DOMAINS
-
-# ── Validation ──────────────────────────────────────────────────────────────
-
-_MAX_QUERY_LENGTH = 10000
-_MAX_FTS5_TOKENS = 100
-_MAX_SEARCH_LIMIT = 1000
-_VALID_URL_SCHEMES = ("https://", "http://", "git@")
-_ALLOWED_GIT_DOMAINS = {"github.com", "gitlab.com", "bitbucket.org", "codeberg.org"}
-_COLLECTION_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 # SQLite PRAGMA constants
 _CACHE_SIZE_KB = 64000
 _MMAP_SIZE = 256 * 1024 * 1024  # 256 MiB
 
 # Scoring constants
-_SECONDS_PER_DAY = 86400
 _HYBRID_MULTIPLIER = 3
 
 # Field name constants
@@ -59,149 +54,6 @@ _UNKNOWN = "unknown"
 _ERR_COLLECTION_NOT_FOUND = "Collection not found"
 
 
-def validate_url(url: str) -> str | None:
-    if not url.startswith(_VALID_URL_SCHEMES):
-        return f"Invalid URL scheme: {url}"
-    if len(url) > 2048:
-        return "URL too long (max 2048 chars)"
-    dangerous_chars = set("\n\r\t`$&|;<>\\")
-    if any(c in url for c in dangerous_chars):
-        return "URL contains dangerous characters"
-    if "%2e" in url.lower() or "%2f" in url.lower():
-        return "URL contains encoded path traversal"
-    return _validate_url_domain(url)
-
-
-def _validate_url_domain(url: str) -> str | None:
-    from urllib.parse import urlparse
-
-    try:
-        parsed = urlparse(url)
-        domain = parsed.hostname or ""
-        if domain and domain not in _ALLOWED_GIT_DOMAINS:
-            if url.startswith("git@"):
-                git_host = url.split("@")[1].split(":")[0] if "@" in url else ""
-                if git_host not in _ALLOWED_GIT_DOMAINS:
-                    return f"Domain not allowed: {git_host}"
-            else:
-                return f"Domain not allowed: {domain}"
-    except (ValueError, AttributeError):
-        pass
-    return None
-
-
-def validate_collection(name: str) -> str | None:
-    if not name:
-        return "Collection name cannot be empty"
-    if len(name) > 255:
-        return "Collection name too long (max 255 chars)"
-    if not _COLLECTION_PATTERN.match(name):
-        return f"Invalid collection name: {name}"
-    return None
-
-
-def validate_query(query: str) -> str | None:
-    if len(query) > _MAX_QUERY_LENGTH:
-        return f"Query too long (max {_MAX_QUERY_LENGTH} chars)"
-    return None
-
-
-def validate_file_mask(mask: str) -> str | None:
-    if ".." in mask:
-        return "File mask must not contain '..' (path traversal)"
-    if mask.startswith("/") or mask.startswith("\\\\"):
-        return "File mask must not be absolute"
-    dangerous = set("|;&$`\x00")
-    if any(c in mask for c in dangerous):
-        return "File mask contains dangerous characters"
-    return None
-
-
-# ── Chunking ────────────────────────────────────────────────────────────────
-
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
-
-
-def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    if not text:
-        return []
-    if chunk_size <= 0:
-        return [text]
-    if len(text) <= chunk_size:
-        return [text]
-
-    # Clamp overlap to prevent infinite loop
-    overlap = min(overlap, chunk_size - 1)
-
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunk = text[start:end]
-
-        if end < len(text):
-            last_period = chunk.rfind(". ")
-            last_newline = chunk.rfind("\n\n")
-            break_at = max(last_period, last_newline)
-            if break_at > chunk_size // 2:
-                chunk = text[start : start + break_at + 1]
-                end = start + break_at + 1
-
-        chunks.append(chunk.strip())
-        start = end - overlap
-
-    return [c for c in chunks if c]
-
-
-def chunk_code(text: str) -> list[str]:
-    """Chunk code files by function/class boundaries."""
-    if not text:
-        return []
-    # Split on function/class definitions or blank lines
-    chunks = re.split(r"\n(?=(?:def |class |async def |# ---|## ))", text)
-    return [c.strip() for c in chunks if c.strip()]
-
-
-# File extensions that should use code chunking
-_CODE_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb", ".php"}
-
-# Binary file extensions to skip during indexing
-_BINARY_SUFFIXES = {
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".svg",
-    ".ico",
-    ".woff",
-    ".woff2",
-    ".ttf",
-    ".eot",
-    ".pyc",
-    ".pyo",
-    ".so",
-    ".dll",
-    ".exe",
-    ".bin",
-    ".whl",
-    ".zip",
-    ".tar",
-    ".gz",
-}
-
-
-def auto_chunk(text: str, file_path: str | None = None) -> list[str]:
-    """Auto-select chunking strategy based on file type."""
-    if file_path:
-        ext = Path(file_path).suffix.lower()
-        if ext in _CODE_EXTENSIONS:
-            chunks = chunk_code(text)
-            if chunks:
-                return chunks
-    return chunk_text(text)
-
-
 # ── Auto Strategy ───────────────────────────────────────────────────────────
 
 
@@ -213,58 +65,6 @@ def auto_strategy(query: str) -> str:
     if len(query.split()) <= 2:
         return "fts"
     return "hybrid"
-
-
-# ── Type Boost ──────────────────────────────────────────────────────────────
-
-TYPE_KEYWORDS = {
-    "api": ["api", "endpoint", "route", "handler", "request", "response"],
-    "tutorial": ["tutorial", "guide", "howto", "how to", "step", "example"],
-    "reference": ["reference", "docs", "documentation", "spec", "specification"],
-    "config": ["config", "configuration", "setup", "install", "environment"],
-}
-
-
-def type_boost(query: str, result: dict) -> float:
-    query_lower = query.lower()
-    title_lower = result.get("title", "").lower()
-    content_lower = result.get("content", "").lower()[:200]
-
-    for keywords in TYPE_KEYWORDS.values():
-        if not any(kw in query_lower for kw in keywords):
-            continue
-        if any(k in title_lower or k in content_lower for k in keywords):
-            return 0.15
-    return 0.0
-
-
-# ── Importance Scoring ────────────────────────────────────────────────────
-
-RECENCY_WEIGHT = 0.1
-FREQUENCY_WEIGHT = 0.05
-AGE_HALF_LIFE_DAYS = 90
-
-
-def importance_boost(result: dict, now: float | None = None) -> float:
-    if now is None:
-        now = time.time()
-    boost = 0.0
-    created_at = result.get("created_at")
-    if created_at:
-        try:
-            from datetime import datetime
-
-            created_ts = datetime.fromisoformat(created_at).timestamp()
-            age_days = (now - created_ts) / _SECONDS_PER_DAY
-            recency = math.exp(-0.693 * age_days / AGE_HALF_LIFE_DAYS)
-            boost += RECENCY_WEIGHT * recency
-        except (ValueError, TypeError):
-            pass
-    retrieval_count = result.get("retrieval_count", 0)
-    if retrieval_count > 0:
-        freq = min(1.0, math.log10(retrieval_count + 1) / 2)
-        boost += FREQUENCY_WEIGHT * freq
-    return round(boost, 4)
 
 
 # ── Storage ─────────────────────────────────────────────────────────────────
@@ -1328,4 +1128,19 @@ _FTS_TRIGGERS = [
         INSERT INTO documents_fts(rowid, title, content, collection)
         VALUES (new.id, new.title, new.content, new.collection);
     END""",
+]
+
+# Re-exports for backward compatibility
+__all__ = [
+    "Storage",
+    "validate_url",
+    "validate_collection",
+    "validate_query",
+    "validate_file_mask",
+    "chunk_text",
+    "chunk_code",
+    "auto_chunk",
+    "type_boost",
+    "importance_boost",
+    "auto_strategy",
 ]

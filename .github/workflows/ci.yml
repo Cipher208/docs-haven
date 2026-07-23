@@ -42,7 +42,7 @@ jobs:
           version: "latest"
       - run: uv sync --extra test
       - run: uv pip install mypy
-      - run: uv run python -m mypy uri.py storage.py sync.py conflicts.py server.py --ignore-missing-imports
+      - run: uv run python -m mypy uri.py storage.py validation.py chunking.py scoring.py sync.py conflicts.py server.py --ignore-missing-imports
 
   test:
     runs-on: ubuntu-latest
