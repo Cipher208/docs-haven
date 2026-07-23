@@ -1,8 +1,8 @@
 # FUTURE PLAN — docs-haven
 
 > Roadmap based on Vision v1.0 + spec + community feedback.
-> 
-> **Личная библиотека разработчика.** MCP-сервер для агента: не просто «поиск по репам», а живая память — индексированные библиотеки, документация, ссылки, заметки — с ответами на естественном языке.
+>
+> **A developer's personal library.** MCP server for agents: not just "searching repos", but living memory — indexed libraries, documentation, links, notes — with answers in natural language.
 
 ---
 
@@ -43,46 +43,46 @@
 
 ## P1: Smart Search — kb_ask + Agent Tools
 
-> **Цель:** Агент задаёт вопросы на естественном языке, получает ответы с цитатами. Не "сформулируй поисковый запрос", а "ответь на вопрос".
+> **Goal:** Agent asks questions in natural language, gets answers with citations. Not "formulate a search query" — "answer the question".
 
 ### 1. kb_ask() — NL Query Engine
 
 Natural language → search → LLM summary → `{answer, chunks, citations}`.
 
 ```
-kb_ask("как в FastAPI сделать Depends с параметрами?")
-  → парсинг: извлечь ключевые слова (FastAPI, Depends, параметры)
-  → FTS5 с query expansion (Depends, dependency injection, dependencies)
-  → ранжирование с учётом контекста (что сейчас смотрел)
-  → LLM-резюме: "Вот как. Три подхода: ..."
-  → возврат: {answer, chunks[], citations[]}
+kb_ask("how to use Depends with parameters in FastAPI?")
+  → parsing: extract keywords (FastAPI, Depends, parameters)
+  → FTS5 with query expansion (Depends, dependency injection, dependencies)
+  → ranking with context awareness (what was viewed recently)
+  → LLM summary: "Here's how. Three approaches: ..."
+  → return: {answer, chunks[], citations[]}
 ```
 
-**Why:** Ключевая фича Vision v1.0. Агент не должен сам формулировать запросы — он должен задавать вопросы.
+**Why:** Key feature from Vision v1.0. Agent shouldn't formulate queries — it should ask questions.
 
 **How:**
-- LLM вызывается через MCP host (не внутри DocsHaven — zero deps)
+- LLM called via MCP host (not inside DocsHaven — zero deps principle)
 - Query expansion: "async generator" → async AND generator, async_generator, yield from
-- Context-aware: приоритезирует ту же коллекцию что и предыдущий запрос
-- Answer mode: LLM-резюме по найденным чанкам с цитатами
+- Context-aware: prioritizes same collection as previous query
+- Answer mode: LLM summary from top chunks with inline citations
 
 **Files:** server.py (add kb_ask tool), storage.py (query expansion), new: llm.py (LLM integration via MCP host)
 
 ### 2. Query Expansion
 
-Автоматическое расширение поисковых запросов.
+Automatic expansion of search queries.
 
 **How:**
-- Словарь синонимов: Depends → dependency injection, dependencies
-- Стемминг: generator → generate, generating, generated
-- Стандартные паттерны: "how to" → tutorial, guide, example
-- Конфигурируемый expansion dictionary
+- Synonym dictionary: Depends → dependency injection, dependencies
+- Stemming: generator → generate, generating, generated
+- Standard patterns: "how to" → tutorial, guide, example
+- Configurable expansion dictionary
 
 **Files:** storage.py (add _expand_query method)
 
 ### 3. Context-Aware Search
 
-Поиск знает что агент смотрел раньше.
+Search knows what the agent viewed before.
 
 **How:**
 - Track last N searched collections in session
@@ -94,7 +94,7 @@ kb_ask("как в FastAPI сделать Depends с параметрами?")
 
 ### 4. Answer Mode (LLM Summary)
 
-LLM-резюме по найденным чанкам с цитатами.
+LLM summary from found chunks with citations.
 
 **How:**
 - After FTS5 search, send top chunks to LLM
@@ -106,7 +106,7 @@ LLM-резюме по найденным чанкам с цитатами.
 
 ### 5. kb_related() — Related Documents
 
-"Что ещё связано с этим?"
+"What else is related to this?"
 
 **How:**
 - Find documents with same tags, same collection, overlapping content
@@ -117,7 +117,7 @@ LLM-резюме по найденным чанкам с цитатами.
 
 ### 6. kb_recent() — Recent Activity
 
-"Что я смотрела вчера?"
+"What did I look at yesterday?"
 
 **How:**
 - Use retrieval_count tracking (already implemented)
@@ -128,7 +128,7 @@ LLM-резюме по найденным чанкам с цитатами.
 
 ### 7. kb_learn() — Topic Exploration
 
-"Хочу изучить тему."
+"I want to learn about this topic."
 
 **How:**
 - Given a topic, find related collections and documents
@@ -139,13 +139,13 @@ LLM-резюме по найденным чанкам с цитатами.
 
 ---
 
-## P2: Indexation Sources — Расширение источников
+## P2: Indexation Sources — Expanding Sources
 
-> **Цель:** Индексировать не только GitHub repos, а всё: локальные папки, URL, PyPI, plain text.
+> **Goal:** Index not just GitHub repos — anything: local folders, URLs, PyPI, plain text.
 
 ### 8. Local Folder Indexing
 
-`kb_add "path:///usr/lib/python3.14/asyncio"`
+`kb_index("path:///usr/lib/python3.14/asyncio")`
 
 **How:**
 - Add `source_type: "local"` to repo metadata
@@ -157,7 +157,7 @@ LLM-резюме по найденным чанкам с цитатами.
 
 ### 9. URL/Web Page Indexing
 
-`kb_add "https://docs.python.org/3/library/asyncio.html"`
+`kb_index("https://docs.python.org/3/library/asyncio.html")`
 
 **How:**
 - Fetch URL content (requests + BeautifulSoup or similar)
@@ -169,19 +169,19 @@ LLM-резюме по найденным чанкам с цитатами.
 
 ### 10. Plain Text Indexing
 
-`kb_add --text "..."` или paste в CLI
+`kb_index("text", content="...")` or paste in CLI
 
 **How:**
 - Accept text content directly
 - Generate title from first line or hash
 - Index as single document
-- CLI: `echo "content" | docs-haven add --text`
+- CLI: `echo "content" | docs-haven index --text`
 
 **Files:** storage.py (add add_text method), cli.py (add --text flag)
 
 ### 11. PyPI Package Indexing
 
-`kb_add "pypi://fastapi"`
+`kb_index("pypi://fastapi")`
 
 **How:**
 - Download package via `pip download --no-deps --dest /tmp`
@@ -193,7 +193,7 @@ LLM-резюме по найденным чанкам с цитатами.
 
 ### 12. Bookmark / Fav List
 
-"Сохрани эту ссылку, я к ней вернусь"
+"Save this link, I'll come back to it"
 
 **How:**
 - `kb_bookmark(url, title?, note?)` — save URL with metadata
@@ -205,13 +205,13 @@ LLM-резюме по найденным чанкам с цитатами.
 
 ---
 
-## P3: Database Depth — Иерархия и структура
+## P3: Database Depth — Hierarchy and Structure
 
-> **Цель:** БД с иерархией, тегами, версиями — не плоская таблица documents.
+> **Goal:** Database with hierarchy, tags, versions — not a flat documents table.
 
 ### 13. Repos Table (separate from documents)
 
-Отдельная таблица для репозиториев с метаданными.
+Separate table for repositories with metadata.
 
 ```sql
 CREATE TABLE repos (
@@ -228,24 +228,24 @@ CREATE TABLE repos (
 );
 ```
 
-**Why:** Сейчас repos хранятся в config.json. Отдельная таблица позволяет SQL-запросы, фильтрацию, статистику.
+**Why:** Repos currently stored in config.json. Separate table enables SQL queries, filtering, statistics.
 
 **Files:** storage.py (migration + new table)
 
 ### 14. Collections with Parent_id (Hierarchy)
 
-Иерархические коллекции: `python → stdlib → asyncio`
+Hierarchical collections: `python → stdlib → asyncio`
 
 **How:**
 - Add `parent_id INTEGER REFERENCES collections(id)` to collections
-- `kb_ask("покажи всё про async в python")` → hierarchy: python → stdlib → asyncio
+- `kb_ask("show me everything about async in python")` → hierarchy: python → stdlib → asyncio
 - Tree navigation: `kb_tree("python")` returns child collections
 
 **Files:** storage.py (migration + hierarchy methods)
 
 ### 15. Tags M2M Table
 
-Many-to-many связь документов и тегов.
+Many-to-many relationship between documents and tags.
 
 ```sql
 CREATE TABLE tags (
@@ -261,13 +261,13 @@ CREATE TABLE document_tags (
 );
 ```
 
-**Why:** Теги хранятся в config.json как comma-separated. M2M таблица позволяет SQL-фильтрацию, агрегации, навигацию по тегам.
+**Why:** Tags stored as comma-separated in config.json. M2M table enables SQL filtering, aggregations, tag navigation.
 
 **Files:** storage.py (migration + tag methods)
 
 ### 16. Freshness Score
 
-Автоматический расчёт актуальности документа.
+Automatic calculation of document relevance over time.
 
 **How:**
 - `freshness_score = f(age, last_updated, retrieval_count)`
@@ -280,7 +280,7 @@ CREATE TABLE document_tags (
 
 ### 17. Version Tracking
 
-Версионирование документов.
+Document versioning.
 
 **How:**
 - Store `version_tag` in documents table (e.g., "fastapi 0.95")
@@ -291,7 +291,7 @@ CREATE TABLE document_tags (
 
 ### 18. Auto-Tags from Content
 
-Автоматическое определение тегов по содержимому.
+Automatic tag detection from document content.
 
 **How:**
 - During indexing, detect: language, framework, topic
@@ -304,7 +304,7 @@ CREATE TABLE document_tags (
 
 ### 19. Cross-References Between Documents
 
-Связи между документами через ссылки и упоминания.
+Links between documents through references and mentions.
 
 **How:**
 - Detect `[[wikilinks]]`, `[text](url)`, `import X` in content
@@ -315,13 +315,13 @@ CREATE TABLE document_tags (
 
 ---
 
-## P4: Primitive API — Мало инструментов, много слоёв
+## P4: Primitive API — Fewer Tools, More Layers
 
-> **Цель:** 5 базовых примитивов для агента. Остальное — layered для power users.
+> **Goal:** 5 core primitives for agents. The rest — layered for power users.
 
 ### 20. Primitive Tools (Agent-Facing)
 
-Агент видит только 5 инструментов:
+Agent sees only 5 tools:
 
 ```
 kb_ask(query, context?)     → {answer, chunks, citations}
@@ -331,7 +331,7 @@ kb_get(file_path)           → {content, metadata}
 kb_stats()                  → {collections, docs, languages, tags}
 ```
 
-**Why:** Из vision: "Агенту нужно 5. Остальное — technical tools для администрирования."
+**Why:** From vision: "Agent needs 5. The rest — technical tools for administration."
 
 **How:**
 - `kb_ask` — NL query → search → answer (P1 #1)
@@ -342,7 +342,7 @@ kb_stats()                  → {collections, docs, languages, tags}
 
 ### 21. Layered Tools (Technical/Power User)
 
-Остальные инструменты доступны, но не в основном API:
+Other tools available but not in main API:
 
 ```
 # Layer 1: Agent-facing (5 tools)
@@ -361,41 +361,41 @@ kb_conflict_check, kb_conflict_judge
 kb_config, kb_backup, kb_restore
 ```
 
-**Why:** Не показывать агенту 20+ инструментов. Дать 5 ключевых, остальное — по запросу.
+**Why:** Don't show agents 20+ tools. Give 5 key ones, the rest — on request.
 
 ### 22. Tool Consolidation
 
-Объединение дублирующих инструментов.
+Merge duplicate tools.
 
 **How:**
 - `kb_add_repo` + `kb_add_local` + `kb_add_url` + `kb_add_text` → `kb_index(source, type)`
-- `kb_conflict_check` + `kb_conflict_suggest` → `kb_conflict_check` (включает suggestions)
+- `kb_conflict_check` + `kb_conflict_suggest` → `kb_conflict_check` (includes suggestions)
 - `kb_context_add` + `kb_context_list` + `kb_context_rm` → `kb_context(action, ...)`
 
 **Files:** server.py (consolidate tools)
 
 ---
 
-## P5: Standalone Version — Автономная версия для пользователя
+## P5: Standalone Version — Autonomous Version for Users
 
-> **Цель:** EXE/дистрибутив для non-агент пользователей. С веб-интерфейсом.
+> **Goal:** EXE/distribution for non-agent users. With GUI.
 
 ### 23. Standalone Desktop App (EXE)
 
-Автономная версия.docs-haven без MCP, с GUI.
+Autonomous docs-haven without MCP, with GUI.
 
 **How:**
 - PyInstaller / cx_Freeze → single EXE
-- Встроенный FastAPI server + веб-интерфейс
+- Built-in FastAPI server + web interface
 - Auto-start server on launch
 - System tray icon
 - No MCP dependency — standalone
 
 **Files:** new: desktop.py, new: web/ directory
 
-### 24. Web Dashboard (для standalone)
+### 24. Web Dashboard (for standalone)
 
-Визуальный интерфейс для standalone версии.
+Visual interface for standalone version.
 
 **How:**
 - Browse collections, search, view documents
@@ -406,9 +406,9 @@ kb_config, kb_backup, kb_restore
 
 **Files:** new: web/templates/, new: web/static/
 
-### 25. Auto-Update для standalone
+### 25. Auto-Update for standalone
 
-Автоматическое обновление standalone версии.
+Automatic updates for standalone version.
 
 **How:**
 - Check GitHub releases for new versions
@@ -422,34 +422,34 @@ kb_config, kb_backup, kb_restore
 ## Deferred
 
 ### 1. Epistemic Graph
-Граф знаний с автоматическими связями.
+Knowledge graph with automatic relationships.
 
-**Why:** Vision: "отложено до 100+ коллекций. Связи между документами сейчас очевидны."
+**Why:** Vision: "deferred until 100+ collections. Document relationships are obvious now."
 
-**When:** 100+ коллекций, cross-collection search becomes bottleneck.
+**When:** 100+ collections, cross-collection search becomes bottleneck.
 
 ### 2. RAG (Full Semantic Search)
-Embedding-based semantic search с локальными моделями.
+Embedding-based semantic search with local models.
 
 **How:** MiniLM, sentence-transformers, Qdrant/ChromaDB.
-**When:** TF-IDF перестанет находить нужное.
+**When:** TF-IDF stops finding what's needed.
 **Cost:** +200MB deps, +100MB RAM per 1000 docs.
 
 ### 3. Plugin System
-Расширяемая архитектура.
+Extensible architecture.
 
 **How:** Plugin API, custom strategies, custom backends.
-**When:** Появятся запросы от сообщества.
+**When:** Community requests appear.
 
 ### 4. Multi-User Support
-Аутентификация, роли, per-user collections.
+Authentication, roles, per-user collections.
 
-**When:** Появятся командные use cases.
+**When:** Team use cases appear.
 
 ### 5. Backup System
-Автоматические бэкапы индекса.
+Automated index backups.
 
-**When:** Git sync перестанет обеспечивать безопасность данных.
+**When:** Git sync stops ensuring data safety.
 
 ---
 
@@ -457,12 +457,12 @@ Embedding-based semantic search с локальными моделями.
 
 | Phase | Scope | Estimate |
 |-------|-------|----------|
-| **P1** | kb_ask + Query Expansion + Context-aware + kb_related + kb_recent | 1-2 недели |
-| **P2** | Local/URL/Text/PyPI indexing + Bookmarks | 1-2 недели |
-| **P3** | repos table + hierarchy + tags M2M + freshness + versions + auto-tags + cross-refs | 2-3 недели |
-| **P4** | Primitive API + layered tools + consolidation | 3-5 дней |
-| **P5** | Standalone EXE + Web Dashboard + auto-update | 2-3 недели |
-| **Deferred** | Graph, RAG, Plugins, Multi-User, Backup | Когда понадобится |
+| **P1** | kb_ask + Query Expansion + Context-aware + kb_related + kb_recent | 1-2 weeks |
+| **P2** | Local/URL/Text/PyPI indexing + Bookmarks | 1-2 weeks |
+| **P3** | repos table + hierarchy + tags M2M + freshness + versions + auto-tags + cross-refs | 2-3 weeks |
+| **P4** | Primitive API + layered tools + consolidation | 3-5 days |
+| **P5** | Standalone EXE + Web Dashboard + auto-update | 2-3 weeks |
+| **Deferred** | Graph, RAG, Plugins, Multi-User, Backup | When needed |
 
 ---
 
