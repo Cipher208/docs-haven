@@ -5,11 +5,13 @@ search benchmarking. Not shipped to end users (excluded from package via
 pyproject.toml tool.hatch.build.exclude).
 """
 
-import tempfile
+import logging
 import time
 from pathlib import Path
 
 from storage import Storage
+
+logger = logging.getLogger(__name__)
 
 
 def generate_docs(n: int) -> dict[str, str]:
@@ -39,6 +41,21 @@ Document {i} provides information about topic group {i % 5}.
     return docs
 
 
+def _create_benchmark_storage() -> Storage:
+    """Create temporary storage for benchmarking."""
+    import tempfile
+
+    d = tempfile.mkdtemp()
+    return Storage(Path(d))
+
+
+def _populate_benchmark_docs(storage: Storage, n_docs: int = 1000) -> None:
+    """Populate storage with benchmark documents."""
+    docs = generate_docs(n_docs)
+    for name, content in docs.items():
+        storage.bulk_insert_raw("benchmark", name, content, f"Document {Path(name).stem}")
+
+
 def benchmark_indexing(storage: Storage, n_docs: int) -> float:
     """Benchmark document indexing speed."""
     docs = generate_docs(n_docs)
@@ -49,6 +66,13 @@ def benchmark_indexing(storage: Storage, n_docs: int) -> float:
     elapsed = time.perf_counter() - start
 
     return elapsed
+
+
+def _warmup(storage: Storage, queries: list[str], iterations: int = 10) -> None:
+    """Warmup search to initialize FTS5 cache."""
+    for _ in range(iterations):
+        for q in queries:
+            storage.search(q, limit=10)
 
 
 def benchmark_search(storage: Storage, n_queries: int = 100) -> dict:
@@ -68,10 +92,7 @@ def benchmark_search(storage: Storage, n_queries: int = 100) -> dict:
 
     times: list[float] = []
 
-    # Warmup: 10 queries to initialize FTS5 cache
-    for _ in range(10):
-        for q in queries:
-            storage.search(q, limit=10)
+    _warmup(storage, queries)
 
     for _ in range(n_queries):
         for q in queries:
@@ -93,44 +114,44 @@ def benchmark_search(storage: Storage, n_queries: int = 100) -> dict:
 
 def run_benchmark() -> None:
     """Run full benchmark suite."""
-    print("=" * 60)
-    print("DocsHaven Benchmark")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("DocsHaven Benchmark")
+    logger.info("=" * 60)
 
-    with tempfile.TemporaryDirectory() as d:
-        storage = Storage(Path(d))
+    storage = _create_benchmark_storage()
+    try:
+        _populate_benchmark_docs(storage, 1000)
 
-        # Benchmark indexing
         for n in [100, 500, 1000]:
             elapsed = benchmark_indexing(storage, n)
             rate = n / elapsed
-            print(f"\nIndex {n:>5} docs: {elapsed:.3f}s ({rate:.0f} docs/sec)")
+            logger.info("Index %5d docs: %.3fs (%.0f docs/sec)", n, elapsed, rate)
 
-        # Benchmark search
         stats = benchmark_search(storage, n_queries=100)
-        print(f"\n--- Search Benchmark (1000 docs, {stats['total_queries']} queries) ---")
-        print(f"  Total queries: {stats['total_queries']}")
-        print(f"  Total time:    {stats['total_time_ms']}ms")
-        print(f"  Avg per query: {stats['avg_ms']}ms")
-        print(f"  Min:           {stats['min_ms']}ms")
-        print(f"  Max:           {stats['max_ms']}ms")
-        print(f"  P95:           {stats['p95_ms']}ms")
-        print(f"  Throughput:    {stats['queries_per_second']} queries/sec")
-
+        logger.info("")
+        logger.info("--- Search Benchmark (1000 docs, %d queries) ---", stats["total_queries"])
+        logger.info("  Total queries: %d", stats["total_queries"])
+        logger.info("  Total time:    %.2fms", stats["total_time_ms"])
+        logger.info("  Avg per query: %.3fms", stats["avg_ms"])
+        logger.info("  Min:           %.3fms", stats["min_ms"])
+        logger.info("  Max:           %.3fms", stats["max_ms"])
+        logger.info("  P95:           %.3fms", stats["p95_ms"])
+        logger.info("  Throughput:    %d queries/sec", stats["queries_per_second"])
+    finally:
         storage.close()
 
-        print("\n" + "=" * 60)
-        print("Benchmark complete!")
-        print("=" * 60)
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("Benchmark complete!")
+    logger.info("=" * 60)
 
 
 def run_benchmark_json() -> dict:
     """Run benchmark and return results as dict."""
 
     results: dict = {}
-    with tempfile.TemporaryDirectory() as d:
-        storage = Storage(Path(d))
-
+    storage = _create_benchmark_storage()
+    try:
         for n in [100, 500, 1000]:
             elapsed = benchmark_indexing(storage, n)
             results[f"index_{n}"] = {
@@ -140,6 +161,7 @@ def run_benchmark_json() -> dict:
             }
 
         results["search"] = benchmark_search(storage, n_queries=100)
+    finally:
         storage.close()
 
     return results
