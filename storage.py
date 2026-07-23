@@ -700,6 +700,66 @@ class Storage:
             logger.warning("Failed to record judgment: %s", e)
             return Err(error=str(e))
 
+    def get_judgments(self, new_id: str) -> Ok[list[dict]] | Err:
+        """Get conflict judgments for a document."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM conflict_judgments WHERE new_id = ?",
+                (new_id,),
+            ).fetchall()
+            return Ok(value=[dict(r) for r in rows])
+        except sqlite3.Error as e:
+            return Err(error=str(e))
+
+    def get_all_documents(self) -> Ok[list[dict]] | Err:
+        """Get all documents for vector indexing."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT id, collection, file_path, content, title, chunk_index FROM documents"
+            ).fetchall()
+            return Ok(value=[dict(r) for r in rows])
+        except sqlite3.Error as e:
+            return Err(error=str(e))
+
+    def count_documents_by_path(self, pattern: str) -> int:
+        """Count documents matching a file_path pattern."""
+        conn = self._get_conn()
+        try:
+            return conn.execute(
+                "SELECT COUNT(*) FROM documents WHERE file_path LIKE ?",
+                (pattern,),
+            ).fetchone()[0]
+        except sqlite3.Error:
+            return 0
+
+    def bulk_insert_raw(self, collection: str, file_path: str, content: str, title: str) -> Ok[dict] | Err:
+        """Insert a single document row directly (for benchmark use)."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+                (collection, file_path, content, title),
+            )
+            conn.commit()
+            return Ok(value={"status": "inserted", "file_path": file_path})
+        except sqlite3.Error as e:
+            return Err(error=str(e))
+
+    def delete_documents_scoped(self, file_path: str, collection: str) -> Ok[dict] | Err:
+        """Delete a document scoped to a specific collection."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "DELETE FROM documents WHERE file_path = ? AND collection = ?",
+                (file_path, collection),
+            )
+            conn.commit()
+            return Ok(value={"status": "deleted", "file_path": file_path, "collection": collection})
+        except sqlite3.Error as e:
+            return Err(error=str(e))
+
     def bulk_insert(self, documents: list[dict]) -> Ok[int] | Err:
         conn = self._get_conn()
         try:
@@ -883,6 +943,8 @@ class Storage:
             return Err(error=str(e))
 
     def _load_config(self) -> dict:
+        # Config read/write is protected by self._config_lock (threading.Lock)
+        # initialized in __init__. Lock prevents concurrent config corruption.
         with self._config_lock:
             if self.config_path.exists():
                 try:
