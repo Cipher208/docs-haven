@@ -327,9 +327,7 @@ class Storage:
                         self._conn = None  # type: ignore[assignment]
         return conn
 
-    def _init_db(self) -> None:
-        conn = self._conn
-        assert conn is not None, "_init_db called before connection established"
+    def _create_documents_table(self, conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -348,6 +346,8 @@ class Storage:
                 UNIQUE(collection, file_path, chunk_index)
             )
         """)
+
+    def _create_fts_table(self, conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
                 title, content, collection,
@@ -358,14 +358,13 @@ class Storage:
         """)
         for trigger_sql in _FTS_TRIGGERS:
             conn.execute(trigger_sql)
+
+    def _create_indexes(self, conn: sqlite3.Connection) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_filepath ON documents(file_path)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_collection_filepath ON documents(collection, file_path)")
-        # Migration: add retrieval_count for existing databases
-        try:
-            conn.execute("ALTER TABLE documents ADD COLUMN retrieval_count INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
+
+    def _create_judgments_table(self, conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS conflict_judgments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -376,7 +375,7 @@ class Storage:
             )
         """)
 
-        # Context attachments — human-written summaries for collections
+    def _create_context_table(self, conn: sqlite3.Connection) -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS context_attachments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -387,18 +386,42 @@ class Storage:
                 UNIQUE(collection, path)
             )
         """)
+
+    def _init_db(self) -> None:
+        conn = self._conn
+        assert conn is not None, "_init_db called before connection established"
+        self._create_documents_table(conn)
+        self._create_fts_table(conn)
+        self._create_indexes(conn)
+        self._create_judgments_table(conn)
+        self._create_context_table(conn)
+        try:
+            conn.execute("ALTER TABLE documents ADD COLUMN retrieval_count INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
+    @staticmethod
+    def _compute_file_hash(content: str) -> str:
+        return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _should_skip_file(file_path: Path) -> bool:
+        if file_path.is_symlink():
+            return True
+        if not file_path.exists():
+            return True
+        if file_path.suffix.lower() in _BINARY_SUFFIXES:
+            return True
+        return False
+
     def _index_file(self, conn: sqlite3.Connection, f: Path, repo_dir: Path, name: str, description: str | None) -> int:
-        if f.is_symlink():
+        if self._should_skip_file(f):
             return 0
         # Path traversal check
         try:
             f.resolve().relative_to(repo_dir.resolve())
         except ValueError:
-            return 0
-        # Skip binary files
-        if f.suffix.lower() in _BINARY_SUFFIXES:
             return 0
         # Size guard — skip files over 500KB
         try:
@@ -410,7 +433,7 @@ class Storage:
         rel_path = str(f.relative_to(repo_dir))
         title = f.stem.replace("-", " ").replace("_", " ")
         chunks = auto_chunk(content, str(f))
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        content_hash = self._compute_file_hash(content)
         for i, chunk in enumerate(chunks):
             conn.execute(
                 """INSERT OR REPLACE INTO documents
@@ -744,7 +767,7 @@ class Storage:
 
             # Re-chunk the content
             chunks = auto_chunk(content)
-            content_hash = hashlib.sha256(content.encode()).hexdigest()
+            content_hash = self._compute_file_hash(content)
             final_title = title if title is not None else original_title
 
             # Re-insert chunks
@@ -897,6 +920,22 @@ class Storage:
             logger.debug("Remove collection failed: %s", e)
             return Err(error=str(e))
 
+    def _rename_documents(self, conn: sqlite3.Connection, old: str, new: str) -> int:
+        cursor = conn.execute("UPDATE documents SET collection = ? WHERE collection = ?", (new, old))
+        return cursor.rowcount
+
+    def _rename_fts(self, conn: sqlite3.Connection, old: str, new: str) -> None:
+        # FTS5 doesn't support UPDATE on content tables — triggers handle it
+        pass
+
+    def _rename_contexts(self, conn: sqlite3.Connection, old: str, new: str) -> int:
+        cursor = conn.execute("UPDATE context_attachments SET collection = ? WHERE collection = ?", (new, old))
+        return cursor.rowcount
+
+    def _rename_judgments(self, conn: sqlite3.Connection, old: str, new: str) -> None:
+        conn.execute("UPDATE conflict_judgments SET new_id = ? WHERE new_id = ?", (new, old))
+        conn.execute("UPDATE conflict_judgments SET candidate_id = ? WHERE candidate_id = ?", (new, old))
+
     def rename_collection(self, old_name: str, new_name: str) -> Ok[dict] | Err:
         """Rename a collection across all documents and config."""
         old_err = validate_collection(old_name)
@@ -918,25 +957,10 @@ class Storage:
             if existing > 0:
                 return Err(error=f"Collection already exists: {new_name}")
 
-            # Rename all documents
-            conn.execute(
-                "UPDATE documents SET collection = ? WHERE collection = ?",
-                (new_name, old_name),
-            )
-            # Rename context attachments
-            conn.execute(
-                "UPDATE context_attachments SET collection = ? WHERE collection = ?",
-                (new_name, old_name),
-            )
-            # Rename conflict judgments
-            conn.execute(
-                "UPDATE conflict_judgments SET new_id = ? WHERE new_id = ?",
-                (new_name, old_name),
-            )
-            conn.execute(
-                "UPDATE conflict_judgments SET candidate_id = ? WHERE candidate_id = ?",
-                (new_name, old_name),
-            )
+            self._rename_documents(conn, old_name, new_name)
+            self._rename_contexts(conn, old_name, new_name)
+            self._rename_fts(conn, old_name, new_name)
+            self._rename_judgments(conn, old_name, new_name)
             conn.commit()
 
             # Update config
