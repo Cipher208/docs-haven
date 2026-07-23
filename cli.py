@@ -214,7 +214,6 @@ def cmd_export(args: argparse.Namespace) -> None:
     """Export knowledge base."""
     import csv
     import json
-    import sys as _sys
 
     storage = get_storage()
     result = storage.list_documents()
@@ -225,18 +224,18 @@ def cmd_export(args: argparse.Namespace) -> None:
     data = result.value  # type: ignore[union-attr]
 
     if not data:
-        print("No documents to export.", file=_sys.stderr)
+        print("No documents to export.", file=sys.stderr)
         return
 
     if args.format == "json":
-        _sys.stdout.write(json.dumps(data, indent=2))
+        sys.stdout.write(json.dumps(data, indent=2))
     elif args.format == "csv":
-        writer = csv.DictWriter(_sys.stdout, fieldnames=["collection", "path", "title", "content"])
+        writer = csv.DictWriter(sys.stdout, fieldnames=["collection", "path", "title", "content"])
         writer.writeheader()
         writer.writerows(data)
     elif args.format == "md":
         for item in data:
-            _sys.stdout.write(f"# {item['title']}\n\n{item['content']}\n\n---\n\n")
+            sys.stdout.write(f"# {item['title']}\n\n{item['content']}\n\n---\n\n")
 
 
 def cmd_import(args: argparse.Namespace) -> None:

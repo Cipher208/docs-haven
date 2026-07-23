@@ -204,6 +204,8 @@ async def kb_check_imports(file_path: str, repo_root: str = ".") -> dict:
         file_path: Path to the file to check (e.g., 'src/app.py')
         repo_root: Repository root directory (default: current dir)
     """
+    if _is_unsafe_path(file_path):
+        return {"error": "Invalid file path"}
     return check_imports(file_path, repo_root, _get_storage())
 
 

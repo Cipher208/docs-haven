@@ -534,15 +534,14 @@ class Storage:
     def _search_fts5(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
         conn = self._get_conn()
         try:
-            # Sanitize tokens: escape FTS5 special characters
-            tokens = query.split()
+            # Sanitize: strip everything except alphanumeric, spaces, and hyphens
             sanitized = []
-            for t in tokens:
-                # Escape double quotes and strip FTS5 operators
-                t = t.replace('"', '""')
-                t = re.sub(r"[*+^~:{}]|\b(OR|AND|NEAR|NOT)\b", "", t, flags=re.IGNORECASE)
-                if t.strip():
-                    sanitized.append(f'"{t.strip()}"')
+            for t in query.split():
+                # Remove all FTS5 operators and special characters
+                t = re.sub(r"[^a-zA-Z0-9\s\-]", "", t)
+                t = t.strip()
+                if t:
+                    sanitized.append(f'"{t}"')
             fts_query = " ".join(sanitized) if sanitized else '""'
             sql_suffix, extra_params = self._build_fts_sql(collections)
             params = [fts_query] + extra_params + [limit]
@@ -626,11 +625,12 @@ class Storage:
         try:
             # Read existing data before deletion
             existing = conn.execute(
-                "SELECT collection, title FROM documents WHERE file_path = ? AND chunk_index = 0",
+                "SELECT collection, title, extension FROM documents WHERE file_path = ? AND chunk_index = 0",
                 (file_path,),
             ).fetchone()
             collection = existing["collection"] if existing else ""
             original_title = existing["title"] if existing else ""
+            extension = existing["extension"] if existing else Path(file_path).suffix
 
             # Delete all existing chunks
             conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
@@ -644,9 +644,9 @@ class Storage:
             for i, chunk in enumerate(chunks):
                 conn.execute(
                     """INSERT OR REPLACE INTO documents
-                    (collection, file_path, content, content_hash, title, chunk_index, total_chunks)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (collection, file_path, chunk, content_hash, final_title, i, len(chunks)),
+                    (collection, file_path, content, content_hash, extension, title, chunk_index, total_chunks)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (collection, file_path, chunk, content_hash, extension, final_title, i, len(chunks)),
                 )
             conn.commit()
             return Ok(value={"status": "updated", "file_path": file_path, "chunks": len(chunks)})
@@ -710,13 +710,15 @@ class Storage:
             # Count documents before deletion
             count = conn.execute("SELECT COUNT(*) FROM documents WHERE collection = ?", (name,)).fetchone()[0]
 
-            # Delete from all tables
-            conn.execute("DELETE FROM documents WHERE collection = ?", (name,))
-            conn.execute("DELETE FROM context_attachments WHERE collection = ?", (name,))
+            # Delete from all tables (order matters: judgments first, then docs)
             conn.execute(
-                "DELETE FROM conflict_judgments WHERE new_id = ? OR candidate_id = ?",
+                """DELETE FROM conflict_judgments
+                WHERE new_id IN (SELECT file_path FROM documents WHERE collection = ?)
+                OR candidate_id IN (SELECT file_path FROM documents WHERE collection = ?)""",
                 (name, name),
             )
+            conn.execute("DELETE FROM context_attachments WHERE collection = ?", (name,))
+            conn.execute("DELETE FROM documents WHERE collection = ?", (name,))
             conn.commit()
 
             # Remove from config

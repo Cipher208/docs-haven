@@ -195,8 +195,13 @@ class Syncer:
                 except sqlite3.Error:
                     pass
 
-            with gzip.open(chunk_path, "rb") as f:
-                chunk_data = json.loads(f.read())
+            try:
+                with gzip.open(chunk_path, "rb") as f:
+                    chunk_data = json.loads(f.read())
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning("Skipping corrupted chunk %s: %s", entry.id, e)
+                result["chunks_skipped"] += 1
+                continue
 
             n_collections, n_docs = self._import_chunk_data(chunk_data, storage)
             result["chunks_imported"] += 1
