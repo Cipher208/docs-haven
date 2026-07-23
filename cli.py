@@ -76,24 +76,34 @@ def cmd_stats(args: argparse.Namespace) -> None:
     print(f"DB size: {stats['db_size_kb']}KB")
 
 
+def _uri_resolve(uri: str) -> None:
+    router = URIRouter(get_storage())
+    result = router.resolve(uri)
+    for k, v in result.items():
+        print(f"{k}: {v}")
+
+
+def _uri_list(domain: str) -> None:
+    results = URIRouter(get_storage()).list_by_domain(domain)
+    for r in results:
+        print(f"  {r['uri']}")
+
+
+def _uri_domains() -> None:
+    domains = URIRouter(get_storage()).list_all_domains()
+    for d, info in domains.items():
+        print(f"  {d}: {info['count']} collections")
+
+
 def cmd_uri(args: argparse.Namespace) -> None:
     """URI operations."""
-    storage = get_storage()
-    router = URIRouter(storage)
-
     try:
         if args.subcmd == "resolve":
-            result = router.resolve(args.uri)
-            for k, v in result.items():
-                print(f"{k}: {v}")
+            _uri_resolve(args.uri)
         elif args.subcmd == "list":
-            results = router.list_by_domain(args.domain)
-            for r in results:
-                print(f"  {r['uri']}")
+            _uri_list(args.domain)
         elif args.subcmd == "domains":
-            domains = router.list_all_domains()
-            for d, info in domains.items():
-                print(f"  {d}: {info['count']} collections")
+            _uri_domains()
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)
