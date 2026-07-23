@@ -243,29 +243,27 @@ def cmd_serve(args: argparse.Namespace) -> None:
     uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=args.port)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="DocsHaven CLI")
-    parser.add_argument("--version", action="version", version="%(prog)s 0.7.0")
-    subparsers = parser.add_subparsers(dest="command")
-
-    # search
+def _add_search_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("search", help="Search knowledge base")
     sp.add_argument("query", help="Search query")
     sp.add_argument("-l", "--limit", type=int, default=10)
     sp.add_argument("-e", "--explain", action="store_true", help="Show scoring breakdown")
     sp.set_defaults(func=cmd_search)
 
-    # add
+
+def _add_add_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("add", help="Add a repository")
     sp.add_argument("url", help="GitHub repo URL")
     sp.add_argument("-d", "--description", help="Description")
     sp.set_defaults(func=cmd_add)
 
-    # stats
+
+def _add_stats_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("stats", help="Show statistics")
     sp.set_defaults(func=cmd_stats)
 
-    # uri
+
+def _add_uri_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("uri", help="URI operations")
     uri_sub = sp.add_subparsers(dest="subcmd")
     rp = uri_sub.add_parser("resolve", help="Resolve URI")
@@ -275,11 +273,8 @@ def main() -> None:
     uri_sub.add_parser("domains", help="List all domains")
     sp.set_defaults(func=cmd_uri)
 
-    # list (alias for collection list)
-    sp = subparsers.add_parser("list", help="List all collections")
-    sp.set_defaults(func=cmd_list)
 
-    # collection management
+def _add_collection_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("collection", help="Collection management")
     col_sub = sp.add_subparsers(dest="subcmd")
     col_sub.add_parser("list", help="List all collections")
@@ -292,7 +287,8 @@ def main() -> None:
     rename_p.add_argument("new_name", help="New collection name")
     sp.set_defaults(func=cmd_collection)
 
-    # context management
+
+def _add_context_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("context", help="Context attachment management")
     ctx_sub = sp.add_subparsers(dest="subcmd")
     ctx_add = ctx_sub.add_parser("add", help="Add context attachment")
@@ -306,7 +302,8 @@ def main() -> None:
     ctx_rm.add_argument("--path", help="Specific path to remove")
     sp.set_defaults(func=cmd_context)
 
-    # export/import
+
+def _add_export_import_parsers(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("export", help="Export knowledge base")
     sp.add_argument("--format", choices=["json", "csv", "md"], default="json", help="Output format")
     sp.set_defaults(func=cmd_export)
@@ -315,15 +312,38 @@ def main() -> None:
     sp.add_argument("file", help="JSON file to import")
     sp.set_defaults(func=cmd_import)
 
-    # delete
+
+def _add_delete_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("delete", help="Delete a document")
     sp.add_argument("file_path", help="Document path to delete")
     sp.set_defaults(func=cmd_delete)
 
-    # serve
+
+def _add_serve_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("serve", help="Start MCP server")
     sp.add_argument("-p", "--port", type=int, default=8000, help="Port (default: 8000)")
     sp.set_defaults(func=cmd_serve)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="DocsHaven CLI")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.8.0")
+    subparsers = parser.add_subparsers(dest="command")
+
+    _add_search_parser(subparsers)
+    _add_add_parser(subparsers)
+    _add_stats_parser(subparsers)
+    _add_uri_parser(subparsers)
+
+    # list (alias for collection list)
+    sp = subparsers.add_parser("list", help="List all collections")
+    sp.set_defaults(func=cmd_list)
+
+    _add_collection_parser(subparsers)
+    _add_context_parser(subparsers)
+    _add_export_import_parsers(subparsers)
+    _add_delete_parser(subparsers)
+    _add_serve_parser(subparsers)
 
     args = parser.parse_args()
     if not args.command:
