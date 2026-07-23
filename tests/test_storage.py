@@ -648,7 +648,7 @@ class TestUpdateDelete:
 
     def test_close(self, tmp_storage):
         tmp_storage.close()
-        assert tmp_storage._conn is None
+        assert getattr(tmp_storage._local, "conn", None) is None
 
     def test_get_conn_reconnect(self, tmp_storage):
         tmp_storage.close()

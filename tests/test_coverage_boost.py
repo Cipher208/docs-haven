@@ -55,7 +55,7 @@ class TestStorageEdgeCases:
     def test_close(self, tmp_path: Path):
         storage = Storage(tmp_path)
         storage.close()
-        assert storage._conn is None
+        assert getattr(storage._local, "conn", None) is None
 
     def test_get_conn_reconnect(self, tmp_path: Path):
         storage = Storage(tmp_path)

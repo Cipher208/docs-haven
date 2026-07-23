@@ -181,7 +181,13 @@ class Syncer:
             "chunks_skipped": 0,
         }
 
+        _HEX16 = re.compile(r"^[0-9a-f]{16}$")
+
         for entry in manifest.chunks:
+            if not _HEX16.match(entry.id):
+                logger.warning("Skipping chunk with invalid ID: %s", entry.id)
+                result["chunks_skipped"] += 1
+                continue
             chunk_path = self.chunks_dir / f"{entry.id}.json.gz"
             if not chunk_path.exists():
                 result["chunks_skipped"] += 1

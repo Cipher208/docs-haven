@@ -84,6 +84,8 @@ async def kb_search(
         explain: Include scoring breakdown in results (default: false)
     """
     storage = _get_storage()
+    if collections and len(collections) > 100:
+        collections = collections[:100]
     result = storage.search(query, collections, limit, explain=explain, min_score=min_score)
     return _unwrap(result)
 
@@ -293,6 +295,8 @@ async def kb_conflict_check(
         content: Document content
         collections: Optional collection filter
     """
+    if len(content) > 1_000_000:  # 1MB — conflict check only needs preview
+        content = content[:1_000_000]
     detector = _get_detector()
     result = detector.detect(title, content, collections)
     return result.to_dict()

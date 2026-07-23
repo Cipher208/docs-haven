@@ -88,9 +88,9 @@ def validate_query(query: str) -> str | None:
 def validate_file_mask(mask: str) -> str | None:
     if ".." in mask:
         return "File mask must not contain '..' (path traversal)"
-    if mask.startswith("/"):
-        return "File mask must not start with '/'"
-    dangerous = set("|;&$`")
+    if mask.startswith("/") or mask.startswith("\\\\"):
+        return "File mask must not be absolute"
+    dangerous = set("|;&$`\x00")
     if any(c in mask for c in dangerous):
         return "File mask contains dangerous characters"
     return None
@@ -253,47 +253,47 @@ class Storage:
         self.config_path = data_dir / "config.json"
         self.db_path = data_dir / "docshaven.db"
         self.repos_dir.mkdir(parents=True, exist_ok=True)
-        self._conn: sqlite3.Connection | None = None
-        self._conn_lock = threading.Lock()
+        self._local = threading.local()
+        self._init_lock = threading.Lock()
         self._config_lock = threading.Lock()
         self._db_initialized = False
 
     def close(self) -> None:
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            conn.close()
+            self._local.conn = None
 
     def _get_conn(self) -> sqlite3.Connection:
-        with self._conn_lock:
-            if self._conn is not None:
-                try:
-                    self._conn.execute("SELECT 1")
-                    return self._conn
-                except sqlite3.ProgrammingError:
-                    old = self._conn
-                    self._conn = None
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            try:
+                conn.execute("SELECT 1")
+                return conn
+            except sqlite3.ProgrammingError:
+                pass
+        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-64000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA mmap_size=268435456")
+        self._local.conn = conn
+        if not self._db_initialized:
+            with self._init_lock:
+                if not self._db_initialized:
+                    self._conn = conn  # temp for _init_db
                     try:
-                        old.close()
-                    except Exception:
-                        pass
-            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA cache_size=-64000")
-            conn.execute("PRAGMA temp_store=MEMORY")
-            conn.execute("PRAGMA mmap_size=268435456")
-            self._conn = conn
-            # Lazy init: create tables on first connection
-            if not self._db_initialized:
-                try:
-                    self._init_db()
-                    self._db_initialized = True
-                except sqlite3.Error:
-                    self._conn = None
-                    raise
-            return self._conn
+                        self._init_db()
+                        self._db_initialized = True
+                    except sqlite3.Error:
+                        self._conn = None
+                        raise
+                    finally:
+                        self._conn = None
+        return conn
 
     def _init_db(self) -> None:
         conn = self._conn
