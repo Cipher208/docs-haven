@@ -62,23 +62,20 @@ class VectorIndex:
 
     def build(self, min_df: int = 1, batch_size: int = 1000) -> None:
         """Build TF-IDF index from all documents in storage."""
-        conn = self.storage._get_conn()
-
-        total = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-        if total == 0:
+        result = self.storage.get_all_documents()
+        if result.is_err or not result.value:
             self._built = True
             return
+
+        all_rows = result.value
+        total = len(all_rows)
 
         # Phase 1: compute document frequencies in batches
         df: dict[str, int] = {}
         doc_tokens_list: list[list[str]] = []
 
         for offset in range(0, total, batch_size):
-            rows = conn.execute(
-                "SELECT id, collection, file_path, content, title, chunk_index "
-                "FROM documents LIMIT ? OFFSET ?",
-                (batch_size, offset),
-            ).fetchall()
+            rows = all_rows[offset:offset + batch_size]
             for row in rows:
                 tokens = _tokenize(row["content"] + " " + row["title"])
                 doc_tokens_list.append(tokens)
@@ -90,35 +87,27 @@ class VectorIndex:
 
         # Phase 2: build document vectors in batches
         self._doc_vectors = []
-        idx = 0
-        for offset in range(0, total, batch_size):
-            rows = conn.execute(
-                "SELECT id, collection, file_path, content, title, chunk_index "
-                "FROM documents LIMIT ? OFFSET ?",
-                (batch_size, offset),
-            ).fetchall()
-            for row in rows:
-                if idx < len(doc_tokens_list):
-                    tokens = doc_tokens_list[idx]
-                    vector = _tfidf_vector(tokens, self._idf)
-                    self._doc_vectors.append({
-                        "id": row["id"],
-                        "collection": row["collection"],
-                        "path": f"{row['collection']}/{row['file_path']}",
-                        "chunk": row["chunk_index"],
-                        "vector": vector,
-                        "title": row["title"],
-                        "content_preview": row["content"][:200],
-                    })
-                    idx += 1
+        for idx, row in enumerate(all_rows):
+            if idx < len(doc_tokens_list):
+                tokens = doc_tokens_list[idx]
+                vector = _tfidf_vector(tokens, self._idf)
+                self._doc_vectors.append({
+                    "id": row["id"],
+                    "collection": row["collection"],
+                    "path": f"{row['collection']}/{row['file_path']}",
+                    "chunk": row["chunk_index"],
+                    "vector": vector,
+                    "title": row["title"],
+                    "content_preview": row["content"][:200],
+                })
 
         self._built = True
 
     def search(self, query: str, limit: int = 10, min_score: float = 0.0) -> list[dict]:
         """Search using cosine similarity."""
         if not self._built:
-            conn = self.storage._get_conn()
-            count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+            result = self.storage.get_all_documents()
+            count = len(result.value) if result.is_ok else 0
             if count > 50_000:
                 logger.warning("VectorIndex skipped: %d docs exceeds 50k limit", count)
                 return []

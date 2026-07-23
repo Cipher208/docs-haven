@@ -44,14 +44,8 @@ def benchmark_indexing(storage: Storage, n_docs: int) -> float:
     docs = generate_docs(n_docs)
 
     start = time.perf_counter()
-    conn = storage._get_conn()
     for name, content in docs.items():
-        conn.execute(
-            "INSERT OR REPLACE INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("benchmark", name, content, f"Document {Path(name).stem}"),
-        )
-    conn.commit()
-    # Don't close conn — it's Storage's persistent connection
+        storage.bulk_insert_raw("benchmark", name, content, f"Document {Path(name).stem}")
     elapsed = time.perf_counter() - start
 
     return elapsed

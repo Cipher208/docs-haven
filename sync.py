@@ -192,18 +192,10 @@ class Syncer:
 
             # Check if this chunk was already imported (by checking content hash)
             if storage is not None:
-                conn = storage._get_conn()
-                try:
-                    # Check if any document from this chunk exists (by path pattern)
-                    existing = conn.execute(
-                        "SELECT COUNT(*) FROM documents WHERE file_path LIKE ?",
-                        (f"%{entry.id}%",),
-                    ).fetchone()[0]
-                    if existing > 0:
-                        result["chunks_skipped"] += 1
-                        continue
-                except sqlite3.Error:
-                    pass
+                existing = storage.count_documents_by_path(f"%{entry.id}%")
+                if existing > 0:
+                    result["chunks_skipped"] += 1
+                    continue
 
             try:
                 with gzip.open(chunk_path, "rb") as f:
