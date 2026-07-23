@@ -26,6 +26,9 @@ class URI:
         path = re.sub(r"/+", "/", m.group(2)).strip("/")
         if not path:
             raise ValueError(f"Empty path in URI: {uri} (expected domain://path)")
+        # Validate path doesn't contain traversal or injection
+        if ".." in path or path.startswith("/"):
+            raise ValueError(f"Invalid URI path: {path}")
         if domain not in VALID_DOMAINS:
             raise ValueError(f"Unknown domain '{domain}'. Valid: {sorted(VALID_DOMAINS)}")
         return cls(domain=domain, path=path, raw=uri)
