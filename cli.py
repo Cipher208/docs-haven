@@ -243,6 +243,83 @@ def cmd_serve(args: argparse.Namespace) -> None:
     uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=args.port)
 
 
+def cmd_conflicts(args: argparse.Namespace) -> None:
+    """Conflict resolution wizard."""
+    from conflicts import ConflictDetector
+
+    storage = get_storage()
+    detector = ConflictDetector(storage)
+
+    if args.subcmd == "list":
+        result = _unwrap_or_exit(storage.list_collections(), "list")
+        print("Collections:")
+        for c in result:
+            print(f"  {c['name']}: {c['count']} docs")
+        print("\nUse 'conflicts check <title> <content>' to find conflicts.")
+
+    elif args.subcmd == "check":
+        result = detector.detect(args.title, args.content)
+        if not result.has_conflicts:
+            print("No conflicts found.")
+            return
+        print(f"Found {len(result.candidates)} potential conflict(s):")
+        for i, c in enumerate(result.candidates, 1):
+            print(f"\n  [{i}] {c['title']}")
+            print(f"      Collection: {c['collection']}")
+            print(f"      Score: {c['score']:.3f}")
+            print(f"      Path: {c['path']}")
+            print(f"      Snippet: {c['snippet'][:100]}...")
+
+    elif args.subcmd == "resolve":
+        details = detector.get_conflict_details(args.new_id)
+        if "error" in details:
+            print(f"Error: {details['error']}")
+            sys.exit(1)
+
+        if not details["has_conflicts"]:
+            print("No conflicts for this document.")
+            return
+
+        print(f"Conflicts for: {details['new_title']}")
+        print(f"Document ID: {details['new_id']}")
+        print(f"\nCandidates:")
+
+        for i, c in enumerate(details["candidates"], 1):
+            print(f"\n  [{i}] {c['title']}")
+            print(f"      Collection: {c['collection']}")
+            print(f"      Score: {c['score']:.3f}")
+            print(f"      Path: {c['path']}")
+            print(f"      Snippet: {c['snippet'][:120]}...")
+
+        # Show existing judgments
+        if details["judgments"]:
+            print(f"\nExisting judgments:")
+            for j in details["judgments"]:
+                print(f"  {j.get('candidate_id', '?')}: {j.get('judgment', '?')}")
+
+        # Interactive resolution
+        print(f"\nJudgment options: supersedes, conflicts_with, unrelated")
+        for i, c in enumerate(details["candidates"], 1):
+            judgment = input(f"  [{i}] {c['title'][:50]}... judgment: ").strip()
+            if judgment in ("supersedes", "conflicts_with", "unrelated"):
+                result = detector.judge(args.new_id, c["path"], judgment)
+                if hasattr(result, "error") and result.is_err:
+                    print(f"    Error: {result.error}")
+                else:
+                    print(f"    Recorded: {judgment}")
+            elif judgment:
+                print(f"    Skipped (invalid judgment: {judgment})")
+
+    elif args.subcmd == "suggest":
+        suggestion = detector.suggest_resolution(args.new_id)
+        if "error" in suggestion:
+            print(f"Error: {suggestion['error']}")
+            sys.exit(1)
+        print(f"Suggestion: {suggestion['suggestion']}")
+        print(f"Confidence: {suggestion['confidence']:.0%}")
+        print(f"Reason: {suggestion['reason']}")
+
+
 def _add_search_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("search", help="Search knowledge base")
     sp.add_argument("query", help="Search query")
@@ -325,6 +402,25 @@ def _add_serve_parser(subparsers: argparse._SubParsersAction) -> None:
     sp.set_defaults(func=cmd_serve)
 
 
+def _add_conflicts_parser(subparsers: argparse._SubParsersAction) -> None:
+    sp = subparsers.add_parser("conflicts", help="Conflict resolution")
+    conflict_sub = sp.add_subparsers(dest="subcmd")
+
+    conflict_sub.add_parser("list", help="List collections")
+
+    check_p = conflict_sub.add_parser("check", help="Check for conflicts")
+    check_p.add_argument("title", help="Document title")
+    check_p.add_argument("content", help="Document content")
+
+    resolve_p = conflict_sub.add_parser("resolve", help="Interactive conflict resolution")
+    resolve_p.add_argument("new_id", help="Document ID to resolve")
+
+    suggest_p = conflict_sub.add_parser("suggest", help="Suggest resolution strategy")
+    suggest_p.add_argument("new_id", help="Document ID")
+
+    sp.set_defaults(func=cmd_conflicts)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="DocsHaven CLI")
     parser.add_argument("--version", action="version", version="%(prog)s 0.9.0")
@@ -344,6 +440,7 @@ def main() -> None:
     _add_export_import_parsers(subparsers)
     _add_delete_parser(subparsers)
     _add_serve_parser(subparsers)
+    _add_conflicts_parser(subparsers)
 
     args = parser.parse_args()
     if not args.command:
