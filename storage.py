@@ -54,6 +54,19 @@ _UNKNOWN = "unknown"
 _ERR_COLLECTION_NOT_FOUND = "Collection not found"
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _build_explain(base_score: float, boost: float, imp_boost: float, score: float, source: str) -> dict:
+    return {
+        "base_score": round(base_score, 3),
+        "type_boost": round(boost, 3),
+        "importance_boost": round(imp_boost, 3),
+        "final_score": round(score, 3),
+        "source": source,
+    }
+
+
 # ── Auto Strategy ───────────────────────────────────────────────────────────
 
 
@@ -84,7 +97,12 @@ def _collection_row_to_dict(row: sqlite3.Row, ctx_counts: dict) -> dict:
 
 
 class Storage:
-    """SQLite FTS5-backed document storage with smart search strategies."""
+    """SQLite FTS5-backed document storage with smart search strategies.
+
+    # ponytail: 55 methods is high but inherent to the domain —
+    # each is a thin DB operation. Splitting into multiple classes
+    # would add indirection without reducing complexity.
+    """
 
     @classmethod
     def default(cls) -> "Storage":
@@ -369,13 +387,7 @@ class Storage:
                 r[_FIELD_SCORE] = min(1.0, base_score + total_boost)
                 r["boost"] = total_boost
             if explain:
-                r["explain"] = {
-                    "base_score": round(base_score, 3),
-                    "type_boost": round(boost, 3),
-                    "importance_boost": round(imp_boost, 3),
-                    "final_score": round(r.get(_FIELD_SCORE, 0), 3),
-                    "source": r.get("source", _UNKNOWN),
-                }
+                r["explain"] = _build_explain(base_score, boost, imp_boost, r.get(_FIELD_SCORE, 0), r.get("source", _UNKNOWN))
         return results
 
     def _run_hybrid_search(self, query: str, collections: list[str] | None, limit: int, min_score: float) -> list[dict]:
