@@ -6,6 +6,7 @@ No merge conflicts. Manifest tracks all chunks.
 
 import gzip
 import hashlib
+import io
 import json
 import logging
 import re
@@ -199,12 +200,17 @@ class Syncer:
                     continue
 
             try:
+                MAX_DECOMPRESSED = 50 * 1024 * 1024
+                buf = io.BytesIO()
                 with gzip.open(chunk_path, "rb") as f:
-                    raw = f.read()
-                    if len(raw) > 50 * 1024 * 1024:  # 50MB uncompressed limit
-                        result["chunks_skipped"] += 1
-                        continue
-                    chunk_data = json.loads(raw)
+                    while chunk := f.read(8192):
+                        buf.write(chunk)
+                        if buf.tell() > MAX_DECOMPRESSED:
+                            result["chunks_skipped"] += 1
+                            break
+                if buf.tell() > MAX_DECOMPRESSED:
+                    continue
+                chunk_data = json.loads(buf.getvalue())
             except (OSError, json.JSONDecodeError) as e:
                 logger.warning("Skipping corrupted chunk %s: %s", entry.id, e)
                 result["chunks_skipped"] += 1

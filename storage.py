@@ -270,7 +270,12 @@ class Storage:
                     self._conn.execute("SELECT 1")
                     return self._conn
                 except sqlite3.ProgrammingError:
+                    old = self._conn
                     self._conn = None
+                    try:
+                        old.close()
+                    except Exception:
+                        pass
             conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
@@ -489,6 +494,48 @@ class Storage:
                 seen.add(r["path"])
         return results
 
+    def _apply_boosts(self, results: list[dict], query: str, explain: bool) -> list[dict]:
+        for r in results:
+            base_score = r.get("score", 0)
+            boost = type_boost(query, r)
+            imp_boost = importance_boost(r)
+            total_boost = boost + imp_boost
+            if total_boost > 0:
+                r["score"] = min(1.0, base_score + total_boost)
+                r["boost"] = total_boost
+            if explain:
+                r["explain"] = {
+                    "base_score": round(base_score, 3),
+                    "type_boost": round(boost, 3),
+                    "importance_boost": round(imp_boost, 3),
+                    "final_score": round(r.get("score", 0), 3),
+                    "source": r.get("source", "unknown"),
+                }
+        return results
+
+    def _run_hybrid_search(self, query: str, collections: list[str] | None, limit: int, min_score: float) -> list[dict]:
+        max_intermediate = limit * 3
+        results = self._search_fts5(query, collections, limit * 2)
+        # Try vector if FTS results are sparse
+        if len(results) < limit:
+            try:
+                from vector import VectorIndex
+
+                vi = VectorIndex(self)
+                vec_results = vi.search(query, limit=limit, min_score=min_score)
+                seen = {r["path"] for r in results}
+                for r in vec_results:
+                    if r["path"] not in seen and len(results) < max_intermediate:
+                        results.append(r)
+                        seen.add(r["path"])
+            except ImportError:
+                pass
+        # Fallback to LIKE
+        if len(results) < limit:
+            results = self._merge_hybrid(results, query, collections, limit)
+        results.sort(key=lambda r: r.get("score", 0), reverse=True)
+        return results[:max_intermediate]
+
     def search(
         self,
         query: str,
@@ -507,69 +554,31 @@ class Storage:
         if strategy is None:
             strategy = auto_strategy(query)
 
-        # Vector search (optional — requires VectorIndex)
         if strategy == "vector":
             try:
                 from vector import VectorIndex
 
                 vi = VectorIndex(self)
                 results = vi.search(query, limit=limit, min_score=min_score)
-                return Ok(value=results)
             except ImportError:
-                logger.debug("VectorIndex not available, falling back to FTS5")
                 strategy = "fts"
+                results = self._search_fts5(query, collections, limit)
+        elif strategy == "hybrid":
+            results = self._run_hybrid_search(query, collections, limit, min_score)
+        else:
+            results = self._search_fts5(query, collections, limit)
 
-        # Cap intermediate results to prevent unbounded memory
-        max_intermediate = limit * 3
-        results = self._search_fts5(query, collections, limit * 2)
-
-        if strategy == "hybrid" and len(results) < limit:
-            # Try vector search in hybrid mode
-            try:
-                from vector import VectorIndex
-
-                vi = VectorIndex(self)
-                vec_results = vi.search(query, limit=limit, min_score=min_score)
-                seen = {r["path"] for r in results}
-                for r in vec_results:
-                    if r["path"] not in seen and len(results) < max_intermediate:
-                        results.append(r)
-                        seen.add(r["path"])
-            except ImportError:
-                pass
-            # Also try LIKE fallback
-            if len(results) < limit:
-                results = self._merge_hybrid(results, query, collections, limit)
-            results.sort(key=lambda r: r.get("score", 0), reverse=True)
-            results = results[:max_intermediate]
-
-        for r in results:
-            base_score = r.get("score", 0)
-            boost = type_boost(query, r)
-            imp_boost = importance_boost(r)
-            total_boost = boost + imp_boost
-            if total_boost > 0:
-                r["score"] = min(1.0, base_score + total_boost)
-                r["boost"] = total_boost
-            if explain:
-                r["explain"] = {
-                    "base_score": round(base_score, 3),
-                    "type_boost": round(boost, 3),
-                    "importance_boost": round(imp_boost, 3),
-                    "final_score": round(r.get("score", 0), 3),
-                    "source": r.get("source", "unknown"),
-                }
-
+        results = self._apply_boosts(results, query, explain)
         results.sort(key=lambda x: -x.get("score", 0))
         if min_score > 0:
             results = [r for r in results if r.get("score", 0) >= min_score]
-        results = results[:limit]
-        # Track retrieval frequency
+
         try:
-            self._increment_retrieval([r["path"] for r in results])
+            self._increment_retrieval([r["path"] for r in results[:limit]])
         except Exception:
             pass
-        return Ok(value=results)
+
+        return Ok(value=results[:limit])
 
     def _row_to_result(self, row: sqlite3.Row, source: str, highlighted: str | None = None, score: float | None = None) -> dict:
         # Handle rank column gracefully (may not exist in LIKE/get queries)
