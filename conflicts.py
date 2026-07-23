@@ -138,3 +138,65 @@ class ConflictDetector:
         if result.is_err:  # type: ignore[union-attr]
             return {"error": result.error}  # type: ignore[union-attr]
         return result.value  # type: ignore[union-attr]
+
+    def get_conflict_details(self, new_id: str) -> dict:
+        """Get details about a conflict for resolution."""
+        storage = self._get_storage()
+
+        new_doc = storage.get(new_id)
+        if new_doc.is_err:
+            return {"error": f"Document not found: {new_id}"}
+
+        title = new_doc.value.get("title", "")  # type: ignore[union-attr]
+        content = new_doc.value.get("content", "")  # type: ignore[union-attr]
+        candidates = self.detect(title, content)
+
+        conn = storage._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM conflict_judgments WHERE new_id = ?",
+                (new_id,),
+            ).fetchall()
+            judgments = [dict(r) for r in rows]
+        except Exception:
+            judgments = []
+
+        return {
+            "new_id": new_id,
+            "new_title": title,
+            "candidates": candidates.candidates,
+            "has_conflicts": candidates.has_conflicts,
+            "judgments": judgments,
+        }
+
+    def suggest_resolution(self, new_id: str) -> dict:
+        """Suggest a resolution strategy for a conflict."""
+        details = self.get_conflict_details(new_id)
+        if "error" in details:
+            return {"error": details["error"]}
+
+        if not details["has_conflicts"]:
+            return {"suggestion": "no_action", "confidence": 1.0, "reason": "No conflicts detected"}
+
+        if not details["candidates"]:
+            return {"suggestion": "no_action", "confidence": 1.0, "reason": "No similar documents found"}
+
+        top_score = details["candidates"][0].get("score", 0)
+        if top_score > 0.7:
+            return {
+                "suggestion": "supersedes",
+                "confidence": 0.8,
+                "reason": f"High similarity ({top_score:.2f}) — new doc likely supersedes",
+            }
+        elif top_score > 0.4:
+            return {
+                "suggestion": "conflicts_with",
+                "confidence": 0.6,
+                "reason": f"Moderate similarity ({top_score:.2f}) — review manually",
+            }
+        else:
+            return {
+                "suggestion": "unrelated",
+                "confidence": 0.7,
+                "reason": "Low similarity — likely unrelated",
+            }

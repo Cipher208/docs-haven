@@ -324,6 +324,48 @@ async def kb_conflict_judge(
     return _get_detector().judge(new_id, candidate_id, judgment)
 
 
+@mcp.tool()
+async def kb_conflict_details(new_id: str) -> dict:
+    """Get details about a conflict for resolution.
+
+    Args:
+        new_id: ID of the new document
+    """
+    return _get_detector().get_conflict_details(new_id)
+
+
+@mcp.tool()
+async def kb_conflict_suggest(new_id: str) -> dict:
+    """Suggest a resolution strategy for a conflict.
+
+    Args:
+        new_id: ID of the new document
+    """
+    return _get_detector().suggest_resolution(new_id)
+
+
+@mcp.tool()
+async def kb_template_list() -> list[dict]:
+    """List all available collection templates."""
+    from templates import list_templates
+    return list_templates()
+
+
+@mcp.tool()
+async def kb_template_apply(
+    template_name: str,
+    repo_url: str | None = None,
+) -> dict:
+    """Apply a collection template.
+
+    Args:
+        template_name: Template name (e.g., 'python-docs', 'api-docs', 'wiki')
+        repo_url: Optional repository URL to clone and index
+    """
+    from templates import apply_template
+    return apply_template(_get_storage(), template_name, repo_url)
+
+
 # ── Context Attachments ────────────────────────────────────────────────────
 
 
