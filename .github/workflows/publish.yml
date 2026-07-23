@@ -6,7 +6,11 @@ on:
       - 'v*'
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build:
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -28,11 +32,10 @@ jobs:
     timeout-minutes: 10
     permissions:
       id-token: write  # for trusted publishing
+    environment: pypi  # optional: requires GitHub environment protection
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
-        # Uses trusted publishing — no token needed if configured in PyPI
-        # Fallback: set PYPI_API_TOKEN secret in GitHub repo settings
