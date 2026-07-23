@@ -136,8 +136,12 @@ def apply_template(
 
     # Add context notes
     collection_name = template.name
+    import logging
+    logger = logging.getLogger(__name__)
     for note in template.context_notes:
-        storage.add_context(collection_name, note["path"], note["summary"])
+        ctx_result = storage.add_context(collection_name, note["path"], note["summary"])
+        if hasattr(ctx_result, "is_err") and ctx_result.is_err:
+            logger.warning("Failed to add context %s: %s", note["path"], ctx_result.error)
 
     return {
         "status": "applied",
