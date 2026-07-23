@@ -155,7 +155,47 @@ Richer stats with language distribution, top tags, storage breakdown.
 
 ## Low Priority
 
-### 1. Plugin System
+### 1. Curated Starter Collection
+Pre-loaded repos as demo and quick-start reference.
+
+**Why:** New users don't know what to index. A curated collection shows docs-haven's value immediately. From kb-mcp concept: "10-20 шаблонов Лили".
+
+**How:**
+- `docs-haven init --demo` — adds 10-20 curated repos
+- Curated list: fastapi, flask, sqlalchemy, 30-seconds-of-code, developer-roadmap, etc.
+- Stored in `~/.docshaven/starter/` (separate from user repos)
+- Can be updated via `docs-haven init --demo --update`
+
+**Files:** cli.py (add init command), curated list in a JSON/YAML config
+
+### 2. Content Freshness Tracking
+Detect and surface stale documents.
+
+**Why:** From kb-mcp risk: "Контент устаревает — высокая вероятность". Repos change over time, indexed content may be outdated.
+
+**How:**
+- Track `last_indexed_at` per collection
+- `kb_stats` shows "last updated X days ago" per collection
+- `docs-haven check-stale` — lists collections not updated in N days
+- MCP tool: `kb_check_stale(days=30)` returns stale collections
+- Visual indicator in search results: "indexed 45 days ago"
+
+**Files:** storage.py (add staleness tracking), server.py (add tool), cli.py (add command)
+
+### 3. Complexity Filter
+Filter by estimated code complexity.
+
+**Why:** From kb-mcp concept: `complexity: "beginner" | "intermediate" | "advanced"`. Useful for learning-oriented searches.
+
+**How:**
+- Estimate during indexing: file size + nesting depth + import count
+- Store as `complexity TEXT DEFAULT ''` in documents
+- MCP tool parameter: `complexity: str` on `kb_search`
+- CLI: `docs-haven search "query" --complexity beginner`
+
+**Files:** storage.py (add complexity estimation), server.py (update kb_search)
+
+### 4. Plugin System
 Extensible architecture for custom features.
 
 **Why:** Users may need custom search strategies, storage backends, or integrations.
@@ -166,7 +206,7 @@ Extensible architecture for custom features.
 - Custom storage backends
 - Webhook support
 
-### 2. Multi-User Support
+### 5. Multi-User Support
 Shared knowledge base with access control.
 
 **Why:** Teams need shared knowledge bases with permissions.
