@@ -8,10 +8,10 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from conflicts import ConflictDetector
+from import_guard import check_imports
 from storage import Storage
 from sync import Syncer, get_username
 from uri import URIRouter
-from import_guard import check_imports
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("docs-haven")

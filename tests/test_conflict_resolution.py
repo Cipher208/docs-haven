@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from storage import Storage
 from conflicts import ConflictDetector
+from storage import Storage
 
 
 class TestConflictResolution:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from result import Ok, Err
 from cli import main
+from result import Err, Ok
 
 
 def test_cli_search_error():

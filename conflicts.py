@@ -12,6 +12,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
 from result import Err, Ok
 
 if TYPE_CHECKING:
@@ -149,7 +150,7 @@ class ConflictDetector:
         candidates = self.detect(title, content)
 
         judgments_result = storage.get_judgments(new_id)
-        judgments = judgments_result.value if judgments_result.is_ok else []
+        judgments = judgments_result.value if judgments_result.is_ok else []  # type: ignore[union-attr]
 
         return {
             "new_id": new_id,

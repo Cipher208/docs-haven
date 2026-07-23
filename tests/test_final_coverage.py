@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from result import Ok, Err
 from cli import main
-from storage import Storage, validate_url, validate_collection
-from templates import apply_template, get_template
+from result import Err, Ok
+from storage import Storage, validate_collection, validate_url
+from templates import apply_template
 
 
 class TestCLIErrorPaths:

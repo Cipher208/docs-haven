@@ -7,9 +7,8 @@ No merge conflicts. Manifest tracks all chunks.
 import gzip
 import hashlib
 import json
-import os
+import logging
 import re
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,6 +17,8 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from storage import Storage
+
+logger = logging.getLogger(__name__)
 
 CHUNKS_DIR = "chunks"
 MANIFEST_FILE = "manifest.json"

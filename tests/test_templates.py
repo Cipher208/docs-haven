@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from templates import list_templates, get_template, apply_template
 from storage import Storage
+from templates import apply_template, get_template, list_templates
 
 
 class TestTemplates:

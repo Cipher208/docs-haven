@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
-from storage import Storage, validate_url, validate_collection, validate_query, validate_file_mask
+from storage import Storage, validate_collection, validate_file_mask, validate_query, validate_url
 
 
 class TestValidation:
