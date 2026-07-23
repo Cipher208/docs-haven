@@ -40,7 +40,8 @@ def _unwrap_or_exit(result: Any, label: str = "") -> Any:
 def cmd_search(args: argparse.Namespace) -> None:
     """Search the knowledge base."""
     storage = get_storage()
-    result = storage.search(args.query, limit=args.limit, explain=getattr(args, "explain", False))
+    limit = max(1, min(args.limit, 1000))
+    result = storage.search(args.query, limit=limit, explain=getattr(args, "explain", False))
     if result.is_err:  # type: ignore[union-attr]
         print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
@@ -172,7 +173,11 @@ def cmd_collection(args: argparse.Namespace) -> None:
 def cmd_delete(args: argparse.Namespace) -> None:
     """Delete a document."""
     storage = get_storage()
-    result = storage.delete_document(args.file_path)
+    file_path = args.file_path
+    if ".." in file_path or file_path.startswith("/"):
+        print("Error: Invalid file path")
+        sys.exit(1)
+    result = storage.delete_document(file_path)
     if result.is_err:  # type: ignore[union-attr]
         print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
@@ -241,14 +246,20 @@ def cmd_export(args: argparse.Namespace) -> None:
 def cmd_import(args: argparse.Namespace) -> None:
     """Import from JSON backup."""
     import json
+    from pathlib import Path
+
+    file_path = Path(args.file)
+    if not file_path.exists():
+        print(f"Error: File not found: {args.file}")
+        sys.exit(1)
+    if not file_path.suffix == ".json":
+        print(f"Error: Expected .json file, got: {file_path.suffix}")
+        sys.exit(1)
 
     storage = get_storage()
     try:
         with open(args.file) as f:
             data = json.load(f)
-    except FileNotFoundError:
-        print(f"Error: File not found: {args.file}")
-        sys.exit(1)
     except json.JSONDecodeError as e:
         print(f"Error: Invalid JSON: {e}")
         sys.exit(1)
