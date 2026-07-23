@@ -185,6 +185,10 @@ def cmd_export(args: argparse.Namespace) -> None:
 
     data = result.value  # type: ignore[union-attr]
 
+    if not data:
+        print("No documents to export.", file=_sys.stderr)
+        return
+
     if args.format == "json":
         _sys.stdout.write(json.dumps(data, indent=2))
     elif args.format == "csv":
@@ -240,6 +244,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="DocsHaven CLI")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.7.0")
     subparsers = parser.add_subparsers(dest="command")
 
     # search
