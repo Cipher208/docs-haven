@@ -8,8 +8,9 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import sqlite3
-import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -57,6 +58,9 @@ class Manifest(BaseModel):
             return cls.from_dict(json.load(f))
 
 
+_COLLECTION_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
 class Syncer:
     """Handle compressed chunk sync between PC and VPS."""
 
@@ -86,7 +90,7 @@ class Syncer:
         # Build chunk content
         chunk: dict = {
             "collections": {},
-            "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         total_docs = 0
         for name, docs in collections_data.items():
@@ -114,7 +118,7 @@ class Syncer:
         entry = ChunkEntry(
             id=chunk_id,
             created_by=created_by,
-            created_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             collections=len(collections_data),
             documents=total_docs,
         )
@@ -135,7 +139,12 @@ class Syncer:
             return len(collections), sum(len(d) for d in collections.values())
 
         documents = []
+        skipped = 0
         for collection_name, docs in collections.items():
+            if not _COLLECTION_PATTERN.match(collection_name):
+                logger.warning("Skipping invalid collection name: %s", collection_name)
+                skipped += 1
+                continue
             for doc in docs:
                 if isinstance(doc, dict):
                     documents.append(
@@ -146,8 +155,9 @@ class Syncer:
                             "title": doc.get("title", ""),
                         }
                     )
-        storage.bulk_insert(documents)
-        return len(collections), sum(len(d) for d in collections.values())
+        if documents:
+            storage.bulk_insert(documents)
+        return len(collections) - skipped, sum(len(d) for d in collections.values())
 
     def import_chunks(self, storage: "Storage | None" = None) -> dict:
         """Import all chunks not yet applied.
@@ -197,7 +207,11 @@ class Syncer:
 
             try:
                 with gzip.open(chunk_path, "rb") as f:
-                    chunk_data = json.loads(f.read())
+                    raw = f.read()
+                    if len(raw) > 50 * 1024 * 1024:  # 50MB uncompressed limit
+                        result["chunks_skipped"] += 1
+                        continue
+                    chunk_data = json.loads(raw)
             except (OSError, json.JSONDecodeError) as e:
                 logger.warning("Skipping corrupted chunk %s: %s", entry.id, e)
                 result["chunks_skipped"] += 1
@@ -239,4 +253,9 @@ class Syncer:
 
 def get_username() -> str:
     """Get current username for chunk attribution."""
-    return os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
+    import getpass
+
+    try:
+        return getpass.getuser()
+    except Exception:
+        return "unknown"
