@@ -4,6 +4,17 @@ All notable changes to DocsHaven will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-07-23
+
+### Added
+- **Importance scoring** — multi-signal search ranking with recency (exponential decay, 90-day half-life) and retrieval frequency (log-scale). New `retrieval_count` column tracks how often documents are retrieved.
+- **PyPI publish workflow** — GitHub Actions auto-publishes to PyPI on `v*` tag push (trusted publishing).
+
+### Changed
+- **Search scoring** — now combines BM25 rank + type_boost + importance_boost (recency + frequency)
+- **Explain output** — includes `importance_boost` breakdown alongside `type_boost`
+- **Tests** — 275 → 279 (+4 importance scoring tests)
+
 ## [0.8.0] - 2026-07-23
 
 ### Fixed

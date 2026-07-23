@@ -327,7 +327,7 @@ def _add_serve_parser(subparsers: argparse._SubParsersAction) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="DocsHaven CLI")
-    parser.add_argument("--version", action="version", version="%(prog)s 0.8.0")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.9.0")
     subparsers = parser.add_subparsers(dest="command")
 
     _add_search_parser(subparsers)
