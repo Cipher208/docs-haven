@@ -96,9 +96,11 @@ class TestStorageEdgeCases:
 
     def test_list_collections_with_contexts(self, tmp_path: Path):
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc.md", "content": "Test", "title": "Test"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc.md", "content": "Test", "title": "Test"},
+            ]
+        )
         storage.add_context("test", "overview", "Summary")
         result = storage.list_collections()
         assert result.is_ok
@@ -114,11 +116,14 @@ class TestStorageEdgeCases:
 class TestConflictEdgeCases:
     def test_get_details_with_judgments(self, tmp_path: Path):
         from conflicts import ConflictDetector
+
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc1.md", "content": "FastAPI tutorial", "title": "FastAPI Tutorial"},
-            {"collection": "test", "path": "doc2.md", "content": "FastAPI guide", "title": "FastAPI Guide"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc1.md", "content": "FastAPI tutorial", "title": "FastAPI Tutorial"},
+                {"collection": "test", "path": "doc2.md", "content": "FastAPI guide", "title": "FastAPI Guide"},
+            ]
+        )
         detector = ConflictDetector(storage)
         # Record a judgment
         storage.record_judgment("doc1.md", "doc2.md", "supersedes")
@@ -128,11 +133,14 @@ class TestConflictEdgeCases:
 
     def test_suggest_high_similarity(self, tmp_path: Path):
         from conflicts import ConflictDetector
+
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc1.md", "content": "FastAPI middleware authentication patterns", "title": "FastAPI Auth"},
-            {"collection": "test", "path": "doc2.md", "content": "FastAPI middleware authentication patterns", "title": "FastAPI Auth Patterns"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc1.md", "content": "FastAPI middleware authentication patterns", "title": "FastAPI Auth"},
+                {"collection": "test", "path": "doc2.md", "content": "FastAPI middleware authentication patterns", "title": "FastAPI Auth Patterns"},
+            ]
+        )
         detector = ConflictDetector(storage)
         suggestion = detector.suggest_resolution("doc1.md")
         # May be no_action if score is below threshold

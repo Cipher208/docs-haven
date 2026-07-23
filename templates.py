@@ -137,6 +137,7 @@ def apply_template(
     # Add context notes
     collection_name = template.name
     import logging
+
     logger = logging.getLogger(__name__)
     for note in template.context_notes:
         ctx_result = storage.add_context(collection_name, note["path"], note["summary"])

@@ -71,10 +71,12 @@ class TestStorageEdgeCases:
 
     def test_list_documents_by_collection(self, tmp_path: Path):
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "a", "path": "a.md", "content": "A", "title": "A"},
-            {"collection": "b", "path": "b.md", "content": "B", "title": "B"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "a", "path": "a.md", "content": "A", "title": "A"},
+                {"collection": "b", "path": "b.md", "content": "B", "title": "B"},
+            ]
+        )
         result = storage.list_documents("a")
         assert result.is_ok
         assert len(result.value) == 1
@@ -87,9 +89,11 @@ class TestStorageEdgeCases:
 
     def test_stats_with_data(self, tmp_path: Path):
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc.md", "content": "content", "title": "Title"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc.md", "content": "content", "title": "Title"},
+            ]
+        )
         result = storage.stats()
         assert result.is_ok
         assert result.value["total_documents"] == 1

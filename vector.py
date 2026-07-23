@@ -75,7 +75,7 @@ class VectorIndex:
         doc_tokens_list: list[list[str]] = []
 
         for offset in range(0, total, batch_size):
-            rows = all_rows[offset:offset + batch_size]
+            rows = all_rows[offset : offset + batch_size]
             for row in rows:
                 tokens = _tokenize(row["content"] + " " + row["title"])
                 doc_tokens_list.append(tokens)
@@ -91,15 +91,17 @@ class VectorIndex:
             if idx < len(doc_tokens_list):
                 tokens = doc_tokens_list[idx]
                 vector = _tfidf_vector(tokens, self._idf)
-                self._doc_vectors.append({
-                    "id": row["id"],
-                    "collection": row["collection"],
-                    "path": f"{row['collection']}/{row['file_path']}",
-                    "chunk": row["chunk_index"],
-                    "vector": vector,
-                    "title": row["title"],
-                    "content_preview": row["content"][:200],
-                })
+                self._doc_vectors.append(
+                    {
+                        "id": row["id"],
+                        "collection": row["collection"],
+                        "path": f"{row['collection']}/{row['file_path']}",
+                        "chunk": row["chunk_index"],
+                        "vector": vector,
+                        "title": row["title"],
+                        "content_preview": row["content"][:200],
+                    }
+                )
 
         self._built = True
 

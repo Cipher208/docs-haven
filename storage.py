@@ -88,7 +88,7 @@ def validate_file_mask(mask: str) -> str | None:
         return "File mask must not contain '..' (path traversal)"
     if mask.startswith("/"):
         return "File mask must not start with '/'"
-    dangerous = set('|;&$`')
+    dangerous = set("|;&$`")
     if any(c in mask for c in dangerous):
         return "File mask contains dangerous characters"
     return None
@@ -159,7 +159,7 @@ def auto_chunk(text: str, file_path: str | None = None) -> list[str]:
 
 
 def _sanitize_fts5_token(token: str) -> str:
-    return re.sub(r'[^\w]', '', token)
+    return re.sub(r"[^\w]", "", token)
 
 
 def auto_strategy(query: str) -> str:
@@ -716,9 +716,7 @@ class Storage:
         """Get all documents for vector indexing."""
         conn = self._get_conn()
         try:
-            rows = conn.execute(
-                "SELECT id, collection, file_path, content, title, chunk_index FROM documents"
-            ).fetchall()
+            rows = conn.execute("SELECT id, collection, file_path, content, title, chunk_index FROM documents").fetchall()
             return Ok(value=[dict(r) for r in rows])
         except sqlite3.Error as e:
             return Err(error=str(e))
@@ -885,12 +883,7 @@ class Storage:
             ).fetchall()
             ctx_counts = {r["collection"]: r["ctx_count"] for r in ctx_rows}
 
-            return Ok(
-                value=[
-                    _collection_row_to_dict(r, ctx_counts)
-                    for r in rows
-                ]
-            )
+            return Ok(value=[_collection_row_to_dict(r, ctx_counts) for r in rows])
         except sqlite3.Error as e:
             logger.debug("List collections failed: %s", e)
             return Err(error=str(e))
@@ -1053,10 +1046,7 @@ class Storage:
         """List all context attachments."""
         conn = self._get_conn()
         try:
-            rows = conn.execute(
-                "SELECT collection, path, summary, created_at "
-                "FROM context_attachments ORDER BY collection, path"
-            ).fetchall()
+            rows = conn.execute("SELECT collection, path, summary, created_at FROM context_attachments ORDER BY collection, path").fetchall()
             return Ok(value=[dict(r) for r in rows])
         except sqlite3.Error as e:
             logger.debug("List contexts failed: %s", e)

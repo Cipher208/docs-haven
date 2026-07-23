@@ -30,14 +30,7 @@ def _unwrap(result: Any) -> dict:
 
 def _is_unsafe_path(path: str) -> bool:
     """Check if a path contains traversal or injection attempts."""
-    return (
-        ".." in path
-        or path.startswith("/")
-        or "\x00" in path
-        or "\\" in path
-        or "%2e" in path.lower()
-        or "%2f" in path.lower()
-    )
+    return ".." in path or path.startswith("/") or "\x00" in path or "\\" in path or "%2e" in path.lower() or "%2f" in path.lower()
 
 
 # Thread-safe singleton: double-checked locking pattern.
@@ -345,6 +338,7 @@ async def kb_conflict_suggest(new_id: str) -> dict:
 async def kb_template_list() -> list[dict]:
     """List all available collection templates."""
     from templates import list_templates
+
     return list_templates()
 
 
@@ -360,6 +354,7 @@ async def kb_template_apply(
         repo_url: Optional repository URL to clone and index
     """
     from templates import apply_template
+
     return apply_template(_get_storage(), template_name, repo_url)
 
 

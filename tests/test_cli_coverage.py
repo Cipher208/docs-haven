@@ -67,9 +67,9 @@ def test_cli_uri_resolve(capsys):
 
 def test_cli_uri_list(capsys):
     with patch("cli.get_storage") as mock:
-        mock.return_value.list_collections.return_value = Ok(value=[
-            {"name": "core__fastapi", "count": 10, "chunks": 25, "contexts": [], "context_count": 0, "domain": "core"}
-        ])
+        mock.return_value.list_collections.return_value = Ok(
+            value=[{"name": "core__fastapi", "count": 10, "chunks": 25, "contexts": [], "context_count": 0, "domain": "core"}]
+        )
         with patch("sys.argv", ["cli", "uri", "list", "core"]):
             main()
     captured = capsys.readouterr()
@@ -78,9 +78,9 @@ def test_cli_uri_list(capsys):
 
 def test_cli_uri_domains(capsys):
     with patch("cli.get_storage") as mock:
-        mock.return_value.list_collections.return_value = Ok(value=[
-            {"name": "core__fastapi", "count": 10, "chunks": 25, "contexts": [], "context_count": 0, "domain": "core"}
-        ])
+        mock.return_value.list_collections.return_value = Ok(
+            value=[{"name": "core__fastapi", "count": 10, "chunks": 25, "contexts": [], "context_count": 0, "domain": "core"}]
+        )
         with patch("sys.argv", ["cli", "uri", "domains"]):
             main()
     captured = capsys.readouterr()
@@ -89,9 +89,9 @@ def test_cli_uri_domains(capsys):
 
 def test_cli_collection_show(capsys):
     with patch("cli.get_storage") as mock:
-        mock.return_value.list_collections.return_value = Ok(value=[
-            {"name": "test", "count": 5, "chunks": 15, "contexts": ["ctx1"], "context_count": 2, "domain": "core"}
-        ])
+        mock.return_value.list_collections.return_value = Ok(
+            value=[{"name": "test", "count": 5, "chunks": 15, "contexts": ["ctx1"], "context_count": 2, "domain": "core"}]
+        )
         with patch("sys.argv", ["cli", "collection", "show", "test"]):
             main()
     captured = capsys.readouterr()

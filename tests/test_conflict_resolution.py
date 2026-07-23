@@ -11,9 +11,11 @@ from storage import Storage
 class TestConflictResolution:
     def test_get_conflict_details(self, tmp_path: Path):
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc1.md", "content": "FastAPI tutorial", "title": "FastAPI Tutorial"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc1.md", "content": "FastAPI tutorial", "title": "FastAPI Tutorial"},
+            ]
+        )
         detector = ConflictDetector(storage)
         details = detector.get_conflict_details("doc1.md")
         assert details["new_id"] == "doc1.md"
@@ -28,9 +30,11 @@ class TestConflictResolution:
 
     def test_suggest_resolution_no_conflict(self, tmp_path: Path):
         storage = Storage(tmp_path)
-        storage.bulk_insert([
-            {"collection": "test", "path": "doc1.md", "content": "Unique content", "title": "Unique"},
-        ])
+        storage.bulk_insert(
+            [
+                {"collection": "test", "path": "doc1.md", "content": "Unique content", "title": "Unique"},
+            ]
+        )
         detector = ConflictDetector(storage)
         suggestion = detector.suggest_resolution("doc1.md")
         assert suggestion["suggestion"] == "no_action"
