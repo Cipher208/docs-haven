@@ -20,6 +20,8 @@ mcp = FastMCP("docs-haven")
 
 def _unwrap(result) -> dict:
     """Unwrap a Result at the MCP boundary. Returns value or error dict."""
+    if not hasattr(result, "is_err"):
+        return result if isinstance(result, dict) else {"value": result}
     if result.is_err:  # type: ignore[union-attr]
         return {"error": result.error, "code": getattr(result, "code", None)}  # type: ignore[union-attr]
     return result.value  # type: ignore[union-attr]
@@ -146,6 +148,8 @@ async def kb_update(file_path: str, content: str, title: str | None = None) -> d
     """
     if _is_unsafe_path(file_path):
         return {"error": "Invalid file path"}
+    if len(content) > 10_000_000:  # 10MB limit
+        return {"error": "Content too large (max 10MB)"}
     storage = _get_storage()
     result = storage.update_document(file_path, content, title)
     return _unwrap(result)
@@ -206,6 +210,8 @@ async def kb_check_imports(file_path: str, repo_root: str = ".") -> dict:
     """
     if _is_unsafe_path(file_path):
         return {"error": "Invalid file path"}
+    if _is_unsafe_path(repo_root):
+        return {"error": "Invalid repo root path"}
     return check_imports(file_path, repo_root, _get_storage())
 
 
