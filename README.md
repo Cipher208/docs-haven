@@ -297,9 +297,12 @@ docs-haven/
 ├── conflicts.py     # Conflict detection
 ├── result.py        # Ok/Err Result type (Pydantic v2)
 ├── cli.py           # CLI interface (11 commands)
+├── templates.py     # Collection templates
+├── import_guard.py  # Import validation
+├── alias.py         # LLM argument aliasing
 ├── benchmark.py     # Performance benchmarks
-├── tests/           # pytest test suite (284 tests, 91% coverage)
-├── docs/            # Documentation + 8 ADRs
+├── tests/           # pytest test suite (282 tests)
+├── docs/            # Documentation + 10 ADRs
 └── pyproject.toml   # Package config (uv)
 ```
 
