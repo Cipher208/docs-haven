@@ -28,6 +28,15 @@ _JS_IMPORT = re.compile(
 )
 
 
+def _module_exists_locally(module_name: str, root: Path) -> bool:
+    return (
+        (root / f"{module_name}.py").exists()
+        or (root / module_name / "__init__.py").exists()
+        or (root / "src" / f"{module_name}.py").exists()
+        or (root / "src" / module_name / "__init__.py").exists()
+    )
+
+
 def _check_python_imports(content: str, root: Path) -> tuple[list[str], list[str]]:
     imports = []
     phantom = []
@@ -39,11 +48,7 @@ def _check_python_imports(content: str, root: Path) -> tuple[list[str], list[str
             module_name = parts[0]
             if module_name in _STDLIB_MODULES:
                 continue
-            local_path = root / f"{module_name}.py"
-            local_pkg = root / module_name / "__init__.py"
-            src_path = root / "src" / f"{module_name}.py"
-            src_pkg = root / "src" / module_name / "__init__.py"
-            if not (local_path.exists() or local_pkg.exists() or src_path.exists() or src_pkg.exists()):
+            if not _module_exists_locally(module_name, root):
                 phantom.append(module)
     return imports, phantom
 

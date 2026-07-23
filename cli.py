@@ -15,6 +15,13 @@ _ERR_NOT_FOUND = "not found"
 _ERR_PREFIX = "Error:"
 _COLLECTION_LABEL = "Collection"
 
+_ARG_URI = "uri"
+_ARG_DOMAIN = "domain"
+_ARG_COLLECTION = "collection"
+_ARG_TITLE = "title"
+_ARG_CONTENT = "content"
+_ARG_SUBCMD = "subcmd"
+
 _storage: Storage | None = None
 
 
@@ -295,6 +302,37 @@ def _conflict_check(title: str, content: str) -> None:
         print(f"      Snippet: {c['snippet'][:100]}...")
 
 
+def _print_conflict_details(details: dict) -> None:
+    print(f"Conflicts for: {details['new_title']}")
+    print(f"Document ID: {details['new_id']}")
+    print("\nCandidates:")
+    for i, c in enumerate(details["candidates"], 1):
+        print(f"\n  [{i}] {c['title']}")
+        print(f"      Collection: {c['collection']}")
+        print(f"      Score: {c['score']:.3f}")
+        print(f"      Path: {c['path']}")
+        print(f"      Snippet: {c['snippet'][:120]}...")
+    if details["judgments"]:
+        print("\nExisting judgments:")
+        for j in details["judgments"]:
+            print(f"  {j.get('candidate_id', '?')}: {j.get('judgment', '?')}")
+
+
+def _collect_judgments(detector: Any, new_id: str, candidates: list) -> None:
+    valid = {"supersedes", "conflicts_with", "unrelated"}
+    print("\nJudgment options: supersedes, conflicts_with, unrelated")
+    for i, c in enumerate(candidates, 1):
+        judgment = input(f"  [{i}] {c['title'][:50]}... judgment: ").strip()
+        if judgment in valid:
+            result = detector.judge(new_id, c["path"], judgment)
+            if hasattr(result, "error") and result.is_err:
+                print(f"    Error: {result.error}")
+            else:
+                print(f"    Recorded: {judgment}")
+        elif judgment:
+            print(f"    Skipped (invalid: {judgment})")
+
+
 def _conflict_resolve(new_id: str) -> None:
     from conflicts import ConflictDetector
 
@@ -303,38 +341,11 @@ def _conflict_resolve(new_id: str) -> None:
     if "error" in details:
         print(f"{_ERR_PREFIX} {details['error']}")
         sys.exit(1)
-
     if not details["has_conflicts"]:
         print("No conflicts for this document.")
         return
-
-    print(f"Conflicts for: {details['new_title']}")
-    print(f"Document ID: {details['new_id']}")
-    print("\nCandidates:")
-
-    for i, c in enumerate(details["candidates"], 1):
-        print(f"\n  [{i}] {c['title']}")
-        print(f"      Collection: {c['collection']}")
-        print(f"      Score: {c['score']:.3f}")
-        print(f"      Path: {c['path']}")
-        print(f"      Snippet: {c['snippet'][:120]}...")
-
-    if details["judgments"]:
-        print("\nExisting judgments:")
-        for j in details["judgments"]:
-            print(f"  {j.get('candidate_id', '?')}: {j.get('judgment', '?')}")
-
-    print("\nJudgment options: supersedes, conflicts_with, unrelated")
-    for i, c in enumerate(details["candidates"], 1):
-        judgment = input(f"  [{i}] {c['title'][:50]}... judgment: ").strip()
-        if judgment in ("supersedes", "conflicts_with", "unrelated"):
-            result = detector.judge(new_id, c["path"], judgment)
-            if hasattr(result, "error") and result.is_err:
-                print(f"    Error: {result.error}")
-            else:
-                print(f"    Recorded: {judgment}")
-        elif judgment:
-            print(f"    Skipped (invalid judgment: {judgment})")
+    _print_conflict_details(details)
+    _collect_judgments(detector, new_id, details["candidates"])
 
 
 def _conflict_suggest(new_id: str) -> None:
@@ -383,18 +394,18 @@ def _add_stats_parser(subparsers: argparse._SubParsersAction) -> None:
 
 def _add_uri_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("uri", help="URI operations")
-    uri_sub = sp.add_subparsers(dest="subcmd")
+    uri_sub = sp.add_subparsers(dest=_ARG_SUBCMD)
     rp = uri_sub.add_parser("resolve", help="Resolve URI")
-    rp.add_argument("uri", help="URI to resolve")
+    rp.add_argument(_ARG_URI, help="URI to resolve")
     lp = uri_sub.add_parser("list", help="List URIs in domain")
-    lp.add_argument("domain", help="Domain to list")
+    lp.add_argument(_ARG_DOMAIN, help="Domain to list")
     uri_sub.add_parser("domains", help="List all domains")
     sp.set_defaults(func=cmd_uri)
 
 
 def _add_collection_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("collection", help="Collection management")
-    col_sub = sp.add_subparsers(dest="subcmd")
+    col_sub = sp.add_subparsers(dest=_ARG_SUBCMD)
     col_sub.add_parser("list", help="List all collections")
     show_p = col_sub.add_parser("show", help="Show collection details")
     show_p.add_argument("name", help="Collection name")
@@ -408,15 +419,15 @@ def _add_collection_parser(subparsers: argparse._SubParsersAction) -> None:
 
 def _add_context_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("context", help="Context attachment management")
-    ctx_sub = sp.add_subparsers(dest="subcmd")
+    ctx_sub = sp.add_subparsers(dest=_ARG_SUBCMD)
     ctx_add = ctx_sub.add_parser("add", help="Add context attachment")
-    ctx_add.add_argument("collection", help="Collection name")
+    ctx_add.add_argument(_ARG_COLLECTION, help="Collection name")
     ctx_add.add_argument("path", help="Context path (e.g., 'overview')")
     ctx_add.add_argument("summary", help="Summary text")
     ctx_list = ctx_sub.add_parser("list", help="List context attachments")
     ctx_list.add_argument("--collection", help="Filter by collection")
     ctx_rm = ctx_sub.add_parser("rm", help="Remove context attachment")
-    ctx_rm.add_argument("collection", help="Collection name")
+    ctx_rm.add_argument(_ARG_COLLECTION, help="Collection name")
     ctx_rm.add_argument("--path", help="Specific path to remove")
     sp.set_defaults(func=cmd_context)
 
@@ -445,13 +456,13 @@ def _add_serve_parser(subparsers: argparse._SubParsersAction) -> None:
 
 def _add_conflicts_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("conflicts", help="Conflict resolution")
-    conflict_sub = sp.add_subparsers(dest="subcmd")
+    conflict_sub = sp.add_subparsers(dest=_ARG_SUBCMD)
 
     conflict_sub.add_parser("list", help="List collections")
 
     check_p = conflict_sub.add_parser("check", help="Check for conflicts")
-    check_p.add_argument("title", help="Document title")
-    check_p.add_argument("content", help="Document content")
+    check_p.add_argument(_ARG_TITLE, help="Document title")
+    check_p.add_argument(_ARG_CONTENT, help="Document content")
 
     resolve_p = conflict_sub.add_parser("resolve", help="Interactive conflict resolution")
     resolve_p.add_argument("new_id", help="Document ID to resolve")
