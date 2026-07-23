@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from storage import Storage, auto_strategy, chunk_text, type_boost
+from storage import Storage, auto_strategy, chunk_text, type_boost, importance_boost
 
 
 @pytest.fixture
@@ -212,9 +212,10 @@ class TestStorageSearch:
         e = r["explain"]
         assert isinstance(e["base_score"], (int, float))
         assert isinstance(e["type_boost"], (int, float))
+        assert isinstance(e["importance_boost"], (int, float))
         assert isinstance(e["final_score"], (int, float))
         assert e["source"] in ("fts5", "like")
-        assert e["final_score"] == e["base_score"] + e["type_boost"]
+        assert e["final_score"] == e["base_score"] + e["type_boost"] + e["importance_boost"]
 
     def test_search_no_explain_by_default(self, tmp_storage):
         conn = tmp_storage._get_conn()
@@ -653,3 +654,56 @@ class TestUpdateDelete:
         tmp_storage.close()
         conn = tmp_storage._get_conn()
         assert conn is not None
+
+
+# ── Importance Scoring ────────────────────────────────────────────────────
+
+
+def test_importance_boost_recency():
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).timestamp()
+    new_doc = {"created_at": datetime.now(timezone.utc).isoformat(), "retrieval_count": 0}
+    old_doc = {"created_at": "2020-01-01T00:00:00+00:00", "retrieval_count": 0}
+
+    new_boost = importance_boost(new_doc, now=now)
+    old_boost = importance_boost(old_doc, now=now)
+
+    assert new_boost > old_boost
+    assert new_boost > 0
+    assert old_boost < 0.01
+
+
+def test_importance_boost_frequency():
+    no_retrievals = {"retrieval_count": 0}
+    few_retrievals = {"retrieval_count": 5}
+    many_retrievals = {"retrieval_count": 100}
+
+    assert importance_boost(no_retrievals) == 0
+    assert importance_boost(few_retrievals) > importance_boost(no_retrievals)
+    assert importance_boost(many_retrievals) > importance_boost(few_retrievals)
+
+
+def test_search_explain_includes_importance():
+    storage = Storage(Path(tempfile.mkdtemp()))
+    storage.bulk_insert([{"collection": "test", "path": "a.md", "content": "hello world", "title": "Test"}])
+    result = storage.search("hello", explain=True)
+    assert result.is_ok
+    assert len(result.value) > 0
+    assert "importance_boost" in result.value[0].get("explain", {})
+    storage.close()
+
+
+def test_retrieval_count_increments():
+    storage = Storage(Path(tempfile.mkdtemp()))
+    storage.bulk_insert([{"collection": "test", "path": "a.md", "content": "hello world", "title": "Test"}])
+    # First search
+    storage.search("hello")
+    conn = storage._get_conn()
+    row = conn.execute("SELECT retrieval_count FROM documents WHERE file_path = 'a.md'").fetchone()
+    assert row["retrieval_count"] == 1
+    # Second search
+    storage.search("hello")
+    row = conn.execute("SELECT retrieval_count FROM documents WHERE file_path = 'a.md'").fetchone()
+    assert row["retrieval_count"] == 2
+    storage.close()

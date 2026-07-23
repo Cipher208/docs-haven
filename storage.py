@@ -12,11 +12,13 @@ Features:
 import hashlib
 import json
 import logging
+import math
 import re
 import shutil
 import sqlite3
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from result import Err, Ok
@@ -193,6 +195,34 @@ def type_boost(query: str, result: dict) -> float:
     return boost
 
 
+# ── Importance Scoring ────────────────────────────────────────────────────
+
+RECENCY_WEIGHT = 0.1
+FREQUENCY_WEIGHT = 0.05
+AGE_HALF_LIFE_DAYS = 90
+
+
+def importance_boost(result: dict, now: float | None = None) -> float:
+    if now is None:
+        now = time.time()
+    boost = 0.0
+    created_at = result.get("created_at")
+    if created_at:
+        try:
+            from datetime import datetime
+            created_ts = datetime.fromisoformat(created_at).timestamp()
+            age_days = (now - created_ts) / 86400
+            recency = math.exp(-0.693 * age_days / AGE_HALF_LIFE_DAYS)
+            boost += RECENCY_WEIGHT * recency
+        except (ValueError, TypeError):
+            pass
+    retrieval_count = result.get("retrieval_count", 0)
+    if retrieval_count > 0:
+        freq = min(1.0, math.log10(retrieval_count + 1) / 2)
+        boost += FREQUENCY_WEIGHT * freq
+    return round(boost, 4)
+
+
 # ── Storage ─────────────────────────────────────────────────────────────────
 
 
@@ -274,6 +304,7 @@ class Storage:
                 context TEXT DEFAULT '',
                 chunk_index INTEGER DEFAULT 0,
                 total_chunks INTEGER DEFAULT 1,
+                retrieval_count INTEGER DEFAULT 0,
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now')),
                 UNIQUE(collection, file_path, chunk_index)
@@ -292,6 +323,11 @@ class Storage:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_filepath ON documents(file_path)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_collection_filepath ON documents(collection, file_path)")
+        # Migration: add retrieval_count for existing databases
+        try:
+            conn.execute("ALTER TABLE documents ADD COLUMN retrieval_count INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
         conn.execute("""
             CREATE TABLE IF NOT EXISTS conflict_judgments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -509,13 +545,16 @@ class Storage:
         for r in results:
             base_score = r.get("score", 0)
             boost = type_boost(query, r)
-            if boost > 0:
-                r["score"] = min(1.0, base_score + boost)
-                r["boost"] = boost
+            imp_boost = importance_boost(r)
+            total_boost = boost + imp_boost
+            if total_boost > 0:
+                r["score"] = min(1.0, base_score + total_boost)
+                r["boost"] = total_boost
             if explain:
                 r["explain"] = {
                     "base_score": round(base_score, 3),
                     "type_boost": round(boost, 3),
+                    "importance_boost": round(imp_boost, 3),
                     "final_score": round(r.get("score", 0), 3),
                     "source": r.get("source", "unknown"),
                 }
@@ -523,7 +562,13 @@ class Storage:
         results.sort(key=lambda x: -x.get("score", 0))
         if min_score > 0:
             results = [r for r in results if r.get("score", 0) >= min_score]
-        return Ok(value=results[:limit])
+        results = results[:limit]
+        # Track retrieval frequency
+        try:
+            self._increment_retrieval([r["path"] for r in results])
+        except Exception:
+            pass
+        return Ok(value=results)
 
     def _row_to_result(self, row: sqlite3.Row, source: str, highlighted: str | None = None, score: float | None = None) -> dict:
         # Handle rank column gracefully (may not exist in LIKE/get queries)
@@ -538,7 +583,27 @@ class Storage:
             "total_chunks": row["total_chunks"],
             "score": score if score is not None else (round(-rank, 3) if rank is not None else 0),
             "source": source,
+            "created_at": row["created_at"] if "created_at" in row.keys() else None,
+            "retrieval_count": row["retrieval_count"] if "retrieval_count" in row.keys() else 0,
         }
+
+    def _increment_retrieval(self, paths: list[str]) -> None:
+        if not paths:
+            return
+        conn = self._get_conn()
+        try:
+            for path in paths:
+                parts = path.split("/", 1)
+                if len(parts) == 2:
+                    collection, file_path = parts
+                    conn.execute(
+                        "UPDATE documents SET retrieval_count = retrieval_count + 1 "
+                        "WHERE collection = ? AND file_path = ?",
+                        (collection, file_path),
+                    )
+            conn.commit()
+        except sqlite3.Error as e:
+            logger.debug("Failed to update retrieval counts: %s", e)
 
     def _build_fts_sql(self, collections: list[str] | None) -> tuple[str, list]:
         """Build FTS5 search SQL with optional collection filter."""
