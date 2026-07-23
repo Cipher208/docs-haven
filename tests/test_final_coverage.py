@@ -85,7 +85,7 @@ class TestCLIErrorPaths:
                     assert e.code == 1
 
 
-class TestStorageEdgeCases:
+class TestStorageEdgeCasesFinal:
     def test_validate_url_git(self):
         assert validate_url("git@github.com:user/repo.git") is None
 

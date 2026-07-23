@@ -50,7 +50,7 @@ class TestChunkCode:
         assert chunk_code("") == []
 
 
-class TestReindex:
+class TestAutoChunkReindex:
     def test_reindex_unchanged(self, tmp_path: Path):
         storage = Storage(tmp_path)
         repo_dir = storage.repos_dir / "test"

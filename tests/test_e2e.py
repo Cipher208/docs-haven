@@ -1,9 +1,8 @@
-"""Integration tests — exercise storage + search + CRUD workflows via Python API.
+"""Integration tests — verify storage works end-to-end through public API.
 
-These are NOT true E2E tests (which would drive the CLI). They test the
-storage integration layer: inserting documents and verifying search/CRUD
-results, using the same code paths the CLI calls but without subprocess
-invocation. Renamed from "e2e" to avoid confusion with CLI-based tests."""
+Note: These are NOT true E2E tests (which would test CLI/MCP → storage).
+They verify the Storage class works correctly as an integrated unit.
+"""
 
 import tempfile
 from pathlib import Path
