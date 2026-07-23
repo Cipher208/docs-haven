@@ -180,13 +180,14 @@ class Syncer:
                 result["chunks_skipped"] += 1
                 continue
 
-            # Check if this chunk was already imported (by chunk_id in collection name)
+            # Check if this chunk was already imported (by checking content hash)
             if storage is not None:
                 conn = storage._get_conn()
                 try:
+                    # Check if any document from this chunk exists (by path pattern)
                     existing = conn.execute(
-                        "SELECT COUNT(*) FROM documents WHERE collection = ?",
-                        (f"sync_{entry.id}",),
+                        "SELECT COUNT(*) FROM documents WHERE file_path LIKE ?",
+                        (f"%{entry.id}%",),
                     ).fetchone()[0]
                     if existing > 0:
                         result["chunks_skipped"] += 1

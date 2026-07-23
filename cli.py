@@ -1,14 +1,40 @@
 """CLI for DocsHaven — search, add repos, manage knowledge base."""
 
+from __future__ import annotations
+
 import argparse
+import atexit
 import sys
+from typing import Any
 
 from storage import Storage
 from uri import URIRouter
 
+_storage: Storage | None = None
+
 
 def get_storage() -> Storage:
-    return Storage.default()
+    global _storage
+    if _storage is None:
+        _storage = Storage.default()
+        atexit.register(_cleanup)
+    return _storage
+
+
+def _cleanup() -> None:
+    global _storage
+    if _storage is not None:
+        _storage.close()
+        _storage = None
+
+
+def _unwrap_or_exit(result: Any, label: str = "") -> Any:
+    """Unwrap a Result or exit with error message."""
+    if hasattr(result, "is_err") and result.is_err:  # type: ignore[union-attr]
+        error = getattr(result, "error", "Unknown error")  # type: ignore[union-attr]
+        print(f"Error{f' ({label})' if label else ''}: {error}")
+        sys.exit(1)
+    return result.value  # type: ignore[union-attr]
 
 
 def cmd_search(args: argparse.Namespace) -> None:
@@ -62,18 +88,22 @@ def cmd_uri(args: argparse.Namespace) -> None:
     storage = get_storage()
     router = URIRouter(storage)
 
-    if args.subcmd == "resolve":
-        result = router.resolve(args.uri)
-        for k, v in result.items():
-            print(f"{k}: {v}")
-    elif args.subcmd == "list":
-        results = router.list_by_domain(args.domain)
-        for r in results:
-            print(f"  {r['uri']}")
-    elif args.subcmd == "domains":
-        domains = router.list_all_domains()
-        for d, info in domains.items():
-            print(f"  {d}: {info['count']} collections")
+    try:
+        if args.subcmd == "resolve":
+            result = router.resolve(args.uri)
+            for k, v in result.items():
+                print(f"{k}: {v}")
+        elif args.subcmd == "list":
+            results = router.list_by_domain(args.domain)
+            for r in results:
+                print(f"  {r['uri']}")
+        elif args.subcmd == "domains":
+            domains = router.list_all_domains()
+            for d, info in domains.items():
+                print(f"  {d}: {info['count']} collections")
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
 
 def cmd_list(args: argparse.Namespace) -> None:

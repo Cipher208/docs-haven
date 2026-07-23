@@ -10,7 +10,6 @@ from conflicts import ConflictDetector
 from storage import Storage
 from sync import Syncer, get_username
 from uri import URIRouter
-from alias import alias_args
 from import_guard import check_imports
 
 logging.basicConfig(level=logging.INFO)
@@ -160,6 +159,8 @@ async def kb_delete(file_path: str, collection: str | None = None) -> dict:
         file_path: Document path to delete
         collection: Optional collection scope (prevents cross-collection deletes)
     """
+    if _is_unsafe_path(file_path):
+        return {"error": "Invalid file path"}
     storage = _get_storage()
     if collection:
         # Collection-scoped delete: only delete from specified collection

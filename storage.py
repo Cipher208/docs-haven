@@ -23,8 +23,8 @@ from result import Err, Ok
 
 logger = logging.getLogger(__name__)
 
-# Valid URI domains for collection naming (matches uri.py VALID_DOMAINS)
-_VALID_DOMAINS = {"core", "ref", "guide", "lib", "src", "test", "note"}
+# Valid URI domains for collection naming (imported from uri.py)
+from uri import VALID_DOMAINS as _VALID_DOMAINS
 
 # ── Validation ──────────────────────────────────────────────────────────────
 
@@ -202,6 +202,7 @@ class Storage:
         self.repos_dir.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
         self._conn_lock = threading.Lock()
+        self._config_lock = threading.Lock()
         self._db_initialized = False
 
     def close(self) -> None:
@@ -862,22 +863,24 @@ class Storage:
             return Err(error=str(e))
 
     def _load_config(self) -> dict:
-        if self.config_path.exists():
-            try:
-                return json.loads(self.config_path.read_text())
-            except json.JSONDecodeError:
-                logger.warning("Broken config.json, using defaults")
-        return {"repos": {}}
+        with self._config_lock:
+            if self.config_path.exists():
+                try:
+                    return json.loads(self.config_path.read_text())
+                except json.JSONDecodeError:
+                    logger.warning("Broken config.json, using defaults")
+            return {"repos": {}}
 
     def _save_config(self, config: dict):
-        tmp_path = self.config_path.with_suffix(".tmp")
-        try:
-            tmp_path.write_text(json.dumps(config, indent=2))
-            tmp_path.replace(self.config_path)
-        except OSError:
-            if tmp_path.exists():
-                tmp_path.unlink()
-            raise
+        with self._config_lock:
+            tmp_path = self.config_path.with_suffix(".tmp")
+            try:
+                tmp_path.write_text(json.dumps(config, indent=2))
+                tmp_path.replace(self.config_path)
+            except OSError:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+                raise
 
     def _check_file_stale(self, file_path: Path, repo_dir: Path, stored_hash: str) -> dict | None:
         """Check if a single file is stale. Returns finding or None."""
