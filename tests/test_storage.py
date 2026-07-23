@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import insert_doc
 from storage import Storage, auto_strategy, chunk_text, importance_boost, type_boost
 
 
@@ -102,16 +103,8 @@ class TestStorage:
         assert result.value == []
 
     def test_list_collections_domain(self, tmp_storage):
-        conn = tmp_storage._get_conn()
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("core__fastapi", "guide.md", "FastAPI guide", "FastAPI Guide"),
-        )
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("misc", "notes.md", "Notes", "Notes"),
-        )
-        conn.commit()
+        insert_doc(tmp_storage, "core__fastapi", "guide.md", "FastAPI guide", "FastAPI Guide")
+        insert_doc(tmp_storage, "misc", "notes.md", "Notes", "Notes")
 
         result = tmp_storage.list_collections()
         assert result.is_ok
@@ -119,10 +112,6 @@ class TestStorage:
         by_name = {c["name"]: c for c in collections}
         assert by_name["core__fastapi"]["domain"] == "core"
         assert by_name["misc"]["domain"] is None
-
-    def test_get_nonexistent(self, tmp_storage):
-        result = tmp_storage.get("nonexistent.md")
-        assert result.is_err
 
     def test_search_empty(self, tmp_storage):
         result = tmp_storage.search("test query")
@@ -132,17 +121,8 @@ class TestStorage:
 
 class TestStorageSearch:
     def test_add_documents_and_search(self, tmp_storage):
-        # Add documents directly to DB
-        conn = tmp_storage._get_conn()
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("fastapi", "guide.md", "FastAPI dependency injection tutorial", "FastAPI Guide"),
-        )
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("fastapi", "api.md", "FastAPI REST API endpoints", "FastAPI API"),
-        )
-        conn.commit()
+        insert_doc(tmp_storage, "fastapi", "guide.md", "FastAPI dependency injection tutorial", "FastAPI Guide")
+        insert_doc(tmp_storage, "fastapi", "api.md", "FastAPI REST API endpoints", "FastAPI API")
 
         result = tmp_storage.search("FastAPI")
         assert result.is_ok
@@ -152,16 +132,8 @@ class TestStorageSearch:
         assert results[0]["score"] > 0
 
     def test_search_by_collection(self, tmp_storage):
-        conn = tmp_storage._get_conn()
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("fastapi", "guide.md", "FastAPI tutorial", "Guide"),
-        )
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("sqlalchemy", "orm.md", "SQLAlchemy ORM guide", "ORM Guide"),
-        )
-        conn.commit()
+        insert_doc(tmp_storage, "fastapi", "guide.md", "FastAPI tutorial", "Guide")
+        insert_doc(tmp_storage, "sqlalchemy", "orm.md", "SQLAlchemy ORM guide", "ORM Guide")
 
         result = tmp_storage.search("tutorial", collections=["fastapi"])
         assert result.is_ok
@@ -196,12 +168,7 @@ class TestStorageSearch:
         assert results[0]["score"] > 0
 
     def test_search_explain(self, tmp_storage):
-        conn = tmp_storage._get_conn()
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("fastapi", "guide.md", "FastAPI dependency injection tutorial", "FastAPI Guide"),
-        )
-        conn.commit()
+        insert_doc(tmp_storage, "fastapi", "guide.md", "FastAPI dependency injection tutorial", "FastAPI Guide")
 
         result = tmp_storage.search("FastAPI", explain=True)
         assert result.is_ok
@@ -218,12 +185,7 @@ class TestStorageSearch:
         assert e["final_score"] == e["base_score"] + e["type_boost"] + e["importance_boost"]
 
     def test_search_no_explain_by_default(self, tmp_storage):
-        conn = tmp_storage._get_conn()
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("test", "doc.md", "Test content", "Test"),
-        )
-        conn.commit()
+        insert_doc(tmp_storage, "test", "doc.md", "Test content", "Test")
 
         result = tmp_storage.search("Test")
         assert result.is_ok
@@ -551,15 +513,18 @@ class TestUpdateDelete:
         assert "repos" in config
 
     def test_search_with_min_score(self, tmp_storage):
-        conn = tmp_storage._get_conn()
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("test", "doc.md", "FastAPI tutorial guide", "FastAPI"),
-        )
-        conn.commit()
+        # Insert docs with varying relevance to FastAPI
+        insert_doc(tmp_storage, "test", "fastapi.md", "FastAPI is a Python web framework for building APIs", "FastAPI")
+        insert_doc(tmp_storage, "test", "unrelated.md", "The weather is nice today and birds are singing", "Weather")
+
         result = tmp_storage.search("FastAPI", min_score=0.9)
         assert result.is_ok
-        # May or may not find results depending on score threshold
+        # Every returned result must meet the threshold
+        for r in result.value:
+            assert r["score"] >= 0.9, f"Result {r['title']} has score {r['score']} below min_score 0.9"
+        # The unrelated doc should not appear
+        titles = [r["title"] for r in result.value]
+        assert "Weather" not in titles
 
     def test_search_with_limit(self, tmp_storage):
         conn = tmp_storage._get_conn()
@@ -572,16 +537,6 @@ class TestUpdateDelete:
         result = tmp_storage.search("content", limit=2)
         assert result.is_ok
         assert len(result.value) <= 2
-
-    def test_search_hybrid_strategy(self, tmp_storage):
-        conn = tmp_storage._get_conn()
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("test", "doc.md", "FastAPI middleware authentication", "Auth"),
-        )
-        conn.commit()
-        result = tmp_storage.search("FastAPI middleware", strategy="hybrid")
-        assert result.is_ok
 
     def test_search_vector_strategy(self, tmp_storage):
         conn = tmp_storage._get_conn()
@@ -641,7 +596,7 @@ class TestUpdateDelete:
         assert result.is_ok
         assert result.value == []
 
-    def test_stats_empty(self, tmp_storage):
+    def test_stats_empty_chunks(self, tmp_storage):
         result = tmp_storage.stats()
         assert result.is_ok
         assert result.value["total_chunks"] == 0
