@@ -52,11 +52,13 @@ class TestRenameCollection:
         storage = Storage(tmp_path)
         result = storage.rename_collection("../../../etc", "new")
         assert result.is_err
+        assert result.error
 
     def test_rename_invalid_new_name(self, tmp_path: Path):
         storage = Storage(tmp_path)
         result = storage.rename_collection("old", "../../../etc")
         assert result.is_err
+        assert result.error
 
     def test_rename_preserves_context(self, tmp_path: Path):
         storage = Storage(tmp_path)

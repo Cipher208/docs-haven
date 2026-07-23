@@ -61,13 +61,16 @@ class TestContextAttachments:
         storage = Storage(tmp_path)
         result = storage.add_context("test", "", "Summary")
         assert result.is_err
+        assert "empty" in result.error.lower()
 
     def test_add_empty_summary_fails(self, tmp_path: Path):
         storage = Storage(tmp_path)
         result = storage.add_context("test", "path", "")
         assert result.is_err
+        assert "empty" in result.error.lower()
 
     def test_add_invalid_collection_fails(self, tmp_path: Path):
         storage = Storage(tmp_path)
         result = storage.add_context("../../../etc", "path", "Summary")
         assert result.is_err
+        assert result.error

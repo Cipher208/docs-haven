@@ -102,6 +102,10 @@ class TestStorageEdgeCases:
         storage = Storage(tmp_path)
         result = storage.delete_document("nonexistent.md")
         assert result.is_ok
+        # Confirm nothing was inserted
+        stats = storage.stats()
+        assert stats.is_ok
+        assert stats.value["total_documents"] == 0
 
     def test_bulk_insert_empty(self, tmp_path: Path):
         storage = Storage(tmp_path)
@@ -119,13 +123,16 @@ class TestStorageEdgeCases:
         storage = Storage(tmp_path)
         result = storage.rename_collection("../../../etc", "new")
         assert result.is_err
+        assert result.error
         result = storage.rename_collection("old", "../../../etc")
         assert result.is_err
+        assert result.error
 
     def test_remove_invalid_name(self, tmp_path: Path):
         storage = Storage(tmp_path)
         result = storage.remove_collection("../../../etc")
         assert result.is_err
+        assert result.error
 
     def test_find_changed_docs_empty(self, tmp_path: Path):
         storage = Storage(tmp_path)
@@ -136,8 +143,10 @@ class TestStorageEdgeCases:
         storage = Storage(tmp_path)
         result = storage.reindex_collection("../../../etc")
         assert result.is_err
+        assert "invalid" in result.error.lower() or "path" in result.error.lower()
 
     def test_reindex_missing_repo(self, tmp_path: Path):
         storage = Storage(tmp_path)
         result = storage.reindex_collection("nonexistent")
         assert result.is_err
+        assert "not found" in result.error.lower() or "missing" in result.error.lower()

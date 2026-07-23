@@ -475,10 +475,12 @@ class TestUpdateDelete:
         conn.commit()
         result = tmp_storage.update_document("doc.md", "new content", title="New")
         assert result.is_ok
+        assert result.value["status"] == "updated"
 
     def test_delete_nonexistent(self, tmp_storage):
         result = tmp_storage.delete_document("nonexistent.md")
         assert result.is_ok  # Delete is idempotent
+        assert result.value["status"] == "deleted"
 
     def test_record_judgment(self, tmp_storage):
         result = tmp_storage.record_judgment("new_id", "old_id", "supersedes")
@@ -546,6 +548,7 @@ class TestUpdateDelete:
         conn.commit()
         result = tmp_storage.search("middleware", strategy="vector")
         assert result.is_ok
+        assert isinstance(result.value, list)
 
     def test_add_repo_invalid_url_v2(self, tmp_storage):
         result = tmp_storage.add_repo("ftp://invalid.com/repo")
@@ -554,10 +557,12 @@ class TestUpdateDelete:
     def test_add_repo_long_url(self, tmp_storage):
         result = tmp_storage.add_repo("https://example.com/" + "a" * 2050)
         assert result.is_err
+        assert result.error
 
     def test_add_repo_invalid_mask(self, tmp_storage):
         result = tmp_storage.add_repo("https://example.com/repo", mask="../../../etc")
         assert result.is_err
+        assert result.error
 
     def test_get_nonexistent(self, tmp_storage):
         result = tmp_storage.get("nonexistent.md")
@@ -574,8 +579,10 @@ class TestUpdateDelete:
     def test_rename_invalid_names(self, tmp_storage):
         result = tmp_storage.rename_collection("../../../etc", "new")
         assert result.is_err
+        assert result.error
         result = tmp_storage.rename_collection("old", "../../../etc")
         assert result.is_err
+        assert result.error
 
     def test_find_changed_docs_collection(self, tmp_storage):
         repo_dir = tmp_storage.repos_dir / "test"
@@ -586,10 +593,12 @@ class TestUpdateDelete:
     def test_reindex_invalid_collection(self, tmp_storage):
         result = tmp_storage.reindex_collection("../../../etc")
         assert result.is_err
+        assert result.error
 
     def test_reindex_missing_repo(self, tmp_storage):
         result = tmp_storage.reindex_collection("nonexistent")
         assert result.is_err
+        assert "not found" in result.error.lower()
 
     def test_list_documents_empty(self, tmp_storage):
         result = tmp_storage.list_documents()
