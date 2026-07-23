@@ -191,7 +191,11 @@ def cmd_context(args: argparse.Namespace) -> None:
         print(f"Added context: {args.collection}/{args.path}")
 
     elif args.subcmd == "list":
-        ctx_result = storage.list_contexts()
+        collection_filter = getattr(args, "collection", None)
+        if collection_filter:
+            ctx_result = storage.get_context(collection_filter)
+        else:
+            ctx_result = storage.list_contexts()
         if ctx_result.is_err:  # type: ignore[union-attr]
             print(f"Error: {ctx_result.error}")  # type: ignore[union-attr]
             sys.exit(1)

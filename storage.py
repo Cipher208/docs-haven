@@ -229,8 +229,12 @@ class Storage:
             self._conn = conn
             # Lazy init: create tables on first connection
             if not self._db_initialized:
-                self._init_db()
-                self._db_initialized = True
+                try:
+                    self._init_db()
+                    self._db_initialized = True
+                except sqlite3.Error:
+                    self._conn = None
+                    raise
             return self._conn
 
     def _init_db(self):
