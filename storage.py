@@ -321,10 +321,10 @@ class Storage:
                         self._init_db()
                         self._db_initialized = True
                     except sqlite3.Error:
-                        self._conn = None
+                        self._conn = None  # type: ignore[assignment]
                         raise
                     finally:
-                        self._conn = None
+                        self._conn = None  # type: ignore[assignment]
         return conn
 
     def _init_db(self) -> None:
