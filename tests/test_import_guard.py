@@ -50,5 +50,5 @@ class TestImportGuard:
         f.write_text("import os\nimport sys\nimport nonexistent")
         result = check_imports(str(f), str(tmp_path))
         assert result["total_imports"] == 3
-        # os, sys, nonexistent are all phantom (no local .py file)
-        assert result["phantom_count"] == 3
+        # os, sys are stdlib (not phantom); only nonexistent is phantom
+        assert result["phantom_count"] == 1

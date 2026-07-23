@@ -48,7 +48,7 @@ def benchmark_indexing(storage: Storage, n_docs: int) -> float:
     for name, content in docs.items():
         conn.execute(
             "INSERT OR REPLACE INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("benchmark", name, content, f"Document {name.split('.')[0]}"),
+            ("benchmark", name, content, f"Document {Path(name).stem}"),
         )
     conn.commit()
     # Don't close conn — it's Storage's persistent connection
@@ -113,8 +113,8 @@ def run_benchmark() -> None:
             print(f"\nIndex {n:>5} docs: {elapsed:.3f}s ({rate:.0f} docs/sec)")
 
         # Benchmark search
-        print("\n--- Search Benchmark (1000 docs, 1000 queries) ---")
         stats = benchmark_search(storage, n_queries=100)
+        print(f"\n--- Search Benchmark (1000 docs, {stats['total_queries']} queries) ---")
         print(f"  Total queries: {stats['total_queries']}")
         print(f"  Total time:    {stats['total_time_ms']}ms")
         print(f"  Avg per query: {stats['avg_ms']}ms")

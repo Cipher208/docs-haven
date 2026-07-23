@@ -65,8 +65,6 @@ ALIASES: dict[str, str] = {
     "from": "old_name",
     "to": "new_name",
     "newName": "new_name",
-    # General
-    "id": "file_path",
 }
 
 

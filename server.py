@@ -3,6 +3,7 @@
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -18,7 +19,7 @@ logger = logging.getLogger("docs-haven")
 mcp = FastMCP("docs-haven")
 
 
-def _unwrap(result) -> dict:
+def _unwrap(result: Any) -> dict:
     """Unwrap a Result at the MCP boundary. Returns value or error dict."""
     if not hasattr(result, "is_err"):
         return result if isinstance(result, dict) else {"value": result}

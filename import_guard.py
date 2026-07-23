@@ -6,9 +6,12 @@ Checks if import statements in indexed documents reference real files.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 from storage import Storage
+
+_STDLIB_MODULES = set(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else set()
 
 # Python import patterns
 _PYTHON_IMPORT = re.compile(
@@ -66,6 +69,8 @@ def check_imports(
                 local_pkg = root / module_name / "__init__.py"
                 src_path = root / "src" / f"{module_name}.py"
                 src_pkg = root / "src" / module_name / "__init__.py"
+                if module.split(".")[0] in _STDLIB_MODULES:
+                    continue
                 if not (local_path.exists() or local_pkg.exists() or src_path.exists() or src_pkg.exists()):
                     phantom.append(module)
 
