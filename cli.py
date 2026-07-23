@@ -243,81 +243,96 @@ def cmd_serve(args: argparse.Namespace) -> None:
     uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=args.port)
 
 
-def cmd_conflicts(args: argparse.Namespace) -> None:
-    """Conflict resolution wizard."""
+def _conflict_list() -> None:
+    storage = get_storage()
+    result = _unwrap_or_exit(storage.list_collections(), "list")
+    print("Collections:")
+    for c in result:
+        print(f"  {c['name']}: {c['count']} docs")
+    print("\nUse 'conflicts check <title> <content>' to find conflicts.")
+
+
+def _conflict_check(title: str, content: str) -> None:
     from conflicts import ConflictDetector
 
-    storage = get_storage()
-    detector = ConflictDetector(storage)
+    detector = ConflictDetector(get_storage())
+    result = detector.detect(title, content)
+    if not result.has_conflicts:
+        print("No conflicts found.")
+        return
+    print(f"Found {len(result.candidates)} potential conflict(s):")
+    for i, c in enumerate(result.candidates, 1):
+        print(f"\n  [{i}] {c['title']}")
+        print(f"      Collection: {c['collection']}")
+        print(f"      Score: {c['score']:.3f}")
+        print(f"      Path: {c['path']}")
+        print(f"      Snippet: {c['snippet'][:100]}...")
 
+
+def _conflict_resolve(new_id: str) -> None:
+    from conflicts import ConflictDetector
+
+    detector = ConflictDetector(get_storage())
+    details = detector.get_conflict_details(new_id)
+    if "error" in details:
+        print(f"Error: {details['error']}")
+        sys.exit(1)
+
+    if not details["has_conflicts"]:
+        print("No conflicts for this document.")
+        return
+
+    print(f"Conflicts for: {details['new_title']}")
+    print(f"Document ID: {details['new_id']}")
+    print("\nCandidates:")
+
+    for i, c in enumerate(details["candidates"], 1):
+        print(f"\n  [{i}] {c['title']}")
+        print(f"      Collection: {c['collection']}")
+        print(f"      Score: {c['score']:.3f}")
+        print(f"      Path: {c['path']}")
+        print(f"      Snippet: {c['snippet'][:120]}...")
+
+    if details["judgments"]:
+        print("\nExisting judgments:")
+        for j in details["judgments"]:
+            print(f"  {j.get('candidate_id', '?')}: {j.get('judgment', '?')}")
+
+    print("\nJudgment options: supersedes, conflicts_with, unrelated")
+    for i, c in enumerate(details["candidates"], 1):
+        judgment = input(f"  [{i}] {c['title'][:50]}... judgment: ").strip()
+        if judgment in ("supersedes", "conflicts_with", "unrelated"):
+            result = detector.judge(new_id, c["path"], judgment)
+            if hasattr(result, "error") and result.is_err:
+                print(f"    Error: {result.error}")
+            else:
+                print(f"    Recorded: {judgment}")
+        elif judgment:
+            print(f"    Skipped (invalid judgment: {judgment})")
+
+
+def _conflict_suggest(new_id: str) -> None:
+    from conflicts import ConflictDetector
+
+    detector = ConflictDetector(get_storage())
+    suggestion = detector.suggest_resolution(new_id)
+    if "error" in suggestion:
+        print(f"Error: {suggestion['error']}")
+        sys.exit(1)
+    print(f"Suggestion: {suggestion['suggestion']}")
+    print(f"Confidence: {suggestion['confidence']:.0%}")
+    print(f"Reason: {suggestion['reason']}")
+
+
+def cmd_conflicts(args: argparse.Namespace) -> None:
     if args.subcmd == "list":
-        result = _unwrap_or_exit(storage.list_collections(), "list")
-        print("Collections:")
-        for c in result:
-            print(f"  {c['name']}: {c['count']} docs")
-        print("\nUse 'conflicts check <title> <content>' to find conflicts.")
-
+        _conflict_list()
     elif args.subcmd == "check":
-        result = detector.detect(args.title, args.content)
-        if not result.has_conflicts:
-            print("No conflicts found.")
-            return
-        print(f"Found {len(result.candidates)} potential conflict(s):")
-        for i, c in enumerate(result.candidates, 1):
-            print(f"\n  [{i}] {c['title']}")
-            print(f"      Collection: {c['collection']}")
-            print(f"      Score: {c['score']:.3f}")
-            print(f"      Path: {c['path']}")
-            print(f"      Snippet: {c['snippet'][:100]}...")
-
+        _conflict_check(args.title, args.content)
     elif args.subcmd == "resolve":
-        details = detector.get_conflict_details(args.new_id)
-        if "error" in details:
-            print(f"Error: {details['error']}")
-            sys.exit(1)
-
-        if not details["has_conflicts"]:
-            print("No conflicts for this document.")
-            return
-
-        print(f"Conflicts for: {details['new_title']}")
-        print(f"Document ID: {details['new_id']}")
-        print("\nCandidates:")
-
-        for i, c in enumerate(details["candidates"], 1):
-            print(f"\n  [{i}] {c['title']}")
-            print(f"      Collection: {c['collection']}")
-            print(f"      Score: {c['score']:.3f}")
-            print(f"      Path: {c['path']}")
-            print(f"      Snippet: {c['snippet'][:120]}...")
-
-        # Show existing judgments
-        if details["judgments"]:
-            print("\nExisting judgments:")
-            for j in details["judgments"]:
-                print(f"  {j.get('candidate_id', '?')}: {j.get('judgment', '?')}")
-
-        # Interactive resolution
-        print("\nJudgment options: supersedes, conflicts_with, unrelated")
-        for i, c in enumerate(details["candidates"], 1):
-            judgment = input(f"  [{i}] {c['title'][:50]}... judgment: ").strip()
-            if judgment in ("supersedes", "conflicts_with", "unrelated"):
-                result = detector.judge(args.new_id, c["path"], judgment)
-                if hasattr(result, "error") and result.is_err:
-                    print(f"    Error: {result.error}")
-                else:
-                    print(f"    Recorded: {judgment}")
-            elif judgment:
-                print(f"    Skipped (invalid judgment: {judgment})")
-
+        _conflict_resolve(args.new_id)
     elif args.subcmd == "suggest":
-        suggestion = detector.suggest_resolution(args.new_id)
-        if "error" in suggestion:
-            print(f"Error: {suggestion['error']}")
-            sys.exit(1)
-        print(f"Suggestion: {suggestion['suggestion']}")
-        print(f"Confidence: {suggestion['confidence']:.0%}")
-        print(f"Reason: {suggestion['reason']}")
+        _conflict_suggest(args.new_id)
 
 
 def _add_search_parser(subparsers: argparse._SubParsersAction) -> None:
