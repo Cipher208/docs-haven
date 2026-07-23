@@ -20,11 +20,16 @@ class Bar:
 """
         chunks = auto_chunk(code, "test.py")
         assert len(chunks) >= 2
+        combined = "\n".join(chunks)
+        assert "def foo" in combined
+        assert "class Bar" in combined
 
     def test_markdown(self):
         md = "# Title\n\nContent here.\n\n## Section\n\nMore content."
         chunks = auto_chunk(md, "test.md")
         assert len(chunks) >= 1
+        combined = "\n".join(chunks)
+        assert "Content here" in combined
 
     def test_no_file_path(self):
         text = "Simple text content"
@@ -52,7 +57,7 @@ class TestReindex:
         repo_dir.mkdir()
         content = "content"
         (repo_dir / "doc.md").write_text(content)
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         # Manually add document with correct hash
         conn = storage._get_conn()
         conn.execute(

@@ -1,4 +1,9 @@
-"""End-to-end tests — full workflow for each MCP tool."""
+"""Integration tests — exercise storage + search + CRUD workflows via Python API.
+
+These are NOT true E2E tests (which would drive the CLI). They test the
+storage integration layer: inserting documents and verifying search/CRUD
+results, using the same code paths the CLI calls but without subprocess
+invocation. Renamed from "e2e" to avoid confusion with CLI-based tests."""
 
 import tempfile
 from pathlib import Path
@@ -14,15 +19,15 @@ from uri import URIRouter
 
 @pytest.fixture
 def e2e_storage():
-    """Provide a real storage instance for E2E testing."""
+    """Provide a real storage instance for integration testing."""
     with tempfile.TemporaryDirectory() as d:
         storage = Storage(Path(d))
         yield storage
         storage.close()
 
 
-class TestE2ESearch:
-    """Full workflow: add docs → search → verify results."""
+class TestStorageIntegrationSearch:
+    """Storage integration: add docs via API, search, verify results."""
 
     def test_search_after_indexing(self, e2e_storage):
         conn = e2e_storage._get_conn()
@@ -99,8 +104,8 @@ class TestE2ESearch:
             assert r["score"] >= 0.5
 
 
-class TestE2ECRUD:
-    """Full workflow: create → read → update → delete."""
+class TestStorageIntegrationCRUD:
+    """Storage integration: create, read, update, delete via API."""
 
     def test_full_crud_cycle(self, e2e_storage):
         # Create
@@ -135,8 +140,8 @@ class TestE2ECRUD:
         assert result.is_err
 
 
-class TestE2EConflictDetection:
-    """Full workflow: add docs → detect conflicts → judge."""
+class TestStorageIntegrationConflictDetection:
+    """Storage integration: add docs, detect conflicts, judge."""
 
     def test_conflict_workflow(self, e2e_storage):
         conn = e2e_storage._get_conn()
@@ -157,8 +162,8 @@ class TestE2EConflictDetection:
         assert result.value["status"] == "recorded"
 
 
-class TestE2ESync:
-    """Full workflow: export → import → verify."""
+class TestStorageIntegrationSync:
+    """Storage integration: export and verify."""
 
     def test_sync_roundtrip(self, e2e_storage):
         conn = e2e_storage._get_conn()
@@ -180,8 +185,8 @@ class TestE2ESync:
             assert export_result.get("isEmpty") is True or "chunk_id" in export_result
 
 
-class TestE2EURI:
-    """Full workflow: resolve → search → list."""
+class TestStorageIntegrationURI:
+    """Storage integration: resolve, search, list domains."""
 
     def test_uri_workflow(self, e2e_storage):
         conn = e2e_storage._get_conn()
@@ -207,8 +212,8 @@ class TestE2EURI:
         assert "core" in domains
 
 
-class TestE2EConfig:
-    """Full workflow: add repo → check config → verify persistence."""
+class TestStorageIntegrationConfig:
+    """Storage integration: add repo, check config persistence."""
 
     def test_config_persistence(self, e2e_storage):
 
@@ -229,8 +234,8 @@ class TestE2EConfig:
             assert "test-repo" in config.get("repos", {})
 
 
-class TestE2ECheckStale:
-    """Full workflow: index → modify file → check stale."""
+class TestStorageIntegrationCheckStale:
+    """Storage integration: index, modify file, detect staleness."""
 
     def test_stale_detection_workflow(self, e2e_storage):
         import hashlib
