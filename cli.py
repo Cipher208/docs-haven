@@ -30,22 +30,18 @@ def _cleanup() -> None:
 
 def _unwrap_or_exit(result: Any, label: str = "") -> Any:
     """Unwrap a Result or exit with error message."""
-    if hasattr(result, "is_err") and result.is_err:  # type: ignore[union-attr]
-        error = getattr(result, "error", "Unknown error")  # type: ignore[union-attr]
+    if hasattr(result, "is_err") and result.is_err:
+        error = getattr(result, "error", "Unknown error")
         print(f"Error{f' ({label})' if label else ''}: {error}")
         sys.exit(1)
-    return result.value  # type: ignore[union-attr]
+    return result.value
 
 
 def cmd_search(args: argparse.Namespace) -> None:
     """Search the knowledge base."""
     storage = get_storage()
     limit = max(1, min(args.limit, 1000))
-    result = storage.search(args.query, limit=limit, explain=getattr(args, "explain", False))
-    if result.is_err:  # type: ignore[union-attr]
-        print(f"Error: {result.error}")  # type: ignore[union-attr]
-        sys.exit(1)
-    results = result.value  # type: ignore[union-attr]
+    results = _unwrap_or_exit(storage.search(args.query, limit=limit, explain=getattr(args, "explain", False)), "search")
     if not results:
         print("No results found.")
         return
@@ -62,22 +58,14 @@ def cmd_search(args: argparse.Namespace) -> None:
 def cmd_add(args: argparse.Namespace) -> None:
     """Add a repository."""
     storage = get_storage()
-    result = storage.add_repo(args.url, description=args.description)
-    if result.is_err:  # type: ignore[union-attr]
-        print(f"Error (Add repo): {result.error}")  # type: ignore[union-attr]
-        sys.exit(1)
-    data = result.value  # type: ignore[union-attr]
+    data = _unwrap_or_exit(storage.add_repo(args.url, description=args.description), "add repo")
     print(f"Added {data['name']}: {data['files_indexed']} files, {data.get('chunks', 0)} chunks")
 
 
 def cmd_stats(args: argparse.Namespace) -> None:
     """Show knowledge base statistics."""
     storage = get_storage()
-    result = storage.stats()
-    if result.is_err:  # type: ignore[union-attr]
-        print(f"Error: {result.error}")  # type: ignore[union-attr]
-        sys.exit(1)
-    stats = result.value  # type: ignore[union-attr]
+    stats = _unwrap_or_exit(storage.stats(), "stats")
     print(f"Collections: {stats['collections']}")
     print(f"Documents: {stats['total_documents']}")
     print(f"Chunks: {stats['total_chunks']}")
@@ -110,11 +98,8 @@ def cmd_uri(args: argparse.Namespace) -> None:
 def cmd_list(args: argparse.Namespace) -> None:
     """List all collections."""
     storage = get_storage()
-    result = storage.list_collections()
-    if result.is_err:  # type: ignore[union-attr]
-        print(f"Error: {result.error}")  # type: ignore[union-attr]
-        sys.exit(1)
-    for c in result.value:  # type: ignore[union-attr]
+    result = _unwrap_or_exit(storage.list_collections(), "list")
+    for c in result:
         ctx_count = c.get("context_count", 0)
         ctx_str = f", {ctx_count} contexts" if ctx_count > 0 else ""
         print(f"  {c['name']}: {c['count']} docs, {c['chunks']} chunks{ctx_str}")
@@ -125,21 +110,15 @@ def cmd_collection(args: argparse.Namespace) -> None:
     storage = get_storage()
 
     if args.subcmd == "list":
-        result = storage.list_collections()
-        if result.is_err:  # type: ignore[union-attr]
-            print(f"Error: {result.error}")  # type: ignore[union-attr]
-            sys.exit(1)
-        for c in result.value:  # type: ignore[union-attr]
+        result = _unwrap_or_exit(storage.list_collections(), "list collections")
+        for c in result:
             domain = c.get("domain", "")
             domain_str = f" [{domain}]" if domain else ""
             print(f"  {c['name']}{domain_str}: {c['count']} docs, {c['chunks']} chunks")
 
     elif args.subcmd == "show":
-        result = storage.list_collections()
-        if result.is_err:  # type: ignore[union-attr]
-            print(f"Error: {result.error}")  # type: ignore[union-attr]
-            sys.exit(1)
-        for c in result.value:  # type: ignore[union-attr]
+        result = _unwrap_or_exit(storage.list_collections(), "list collections")
+        for c in result:
             if c["name"] == args.name:
                 print(f"Collection: {c['name']}")
                 print(f"  Documents: {c['count']}")
@@ -155,18 +134,11 @@ def cmd_collection(args: argparse.Namespace) -> None:
         print(f"Collection not found: {args.name}")
 
     elif args.subcmd == "remove":
-        # Use storage API for clean removal (including config)
-        remove_result = storage.remove_collection(args.name)
-        if remove_result.is_err:  # type: ignore[union-attr]
-            print(f"Error: {remove_result.error}")  # type: ignore[union-attr]
-            sys.exit(1)
+        _unwrap_or_exit(storage.remove_collection(args.name), "remove collection")
         print(f"Removed collection: {args.name}")
 
     elif args.subcmd == "rename":
-        rename_result = storage.rename_collection(args.old_name, args.new_name)
-        if rename_result.is_err:  # type: ignore[union-attr]
-            print(f"Error: {rename_result.error}")  # type: ignore[union-attr]
-            sys.exit(1)
+        _unwrap_or_exit(storage.rename_collection(args.old_name, args.new_name), "rename collection")
         print(f"Renamed: {args.old_name} → {args.new_name}")
 
 
@@ -177,11 +149,8 @@ def cmd_delete(args: argparse.Namespace) -> None:
     if ".." in file_path or file_path.startswith("/"):
         print("Error: Invalid file path")
         sys.exit(1)
-    result = storage.delete_document(file_path)
-    if result.is_err:  # type: ignore[union-attr]
-        print(f"Error: {result.error}")  # type: ignore[union-attr]
-        sys.exit(1)
-    print(f"Deleted: {result.value['file_path']}")  # type: ignore[union-attr]
+    result = _unwrap_or_exit(storage.delete_document(file_path), "delete")
+    print(f"Deleted: {result['file_path']}")
 
 
 def cmd_context(args: argparse.Namespace) -> None:
@@ -189,29 +158,20 @@ def cmd_context(args: argparse.Namespace) -> None:
     storage = get_storage()
 
     if args.subcmd == "add":
-        result = storage.add_context(args.collection, args.path, args.summary)
-        if result.is_err:  # type: ignore[union-attr]
-            print(f"Error: {result.error}")  # type: ignore[union-attr]
-            sys.exit(1)
+        _unwrap_or_exit(storage.add_context(args.collection, args.path, args.summary), "add context")
         print(f"Added context: {args.collection}/{args.path}")
 
     elif args.subcmd == "list":
         collection_filter = getattr(args, "collection", None)
         if collection_filter:
-            ctx_result = storage.get_context(collection_filter)
+            ctx_result = _unwrap_or_exit(storage.get_context(collection_filter), "get context")
         else:
-            ctx_result = storage.list_contexts()
-        if ctx_result.is_err:  # type: ignore[union-attr]
-            print(f"Error: {ctx_result.error}")  # type: ignore[union-attr]
-            sys.exit(1)
-        for c in ctx_result.value:  # type: ignore[union-attr]
+            ctx_result = _unwrap_or_exit(storage.list_contexts(), "list contexts")
+        for c in ctx_result:
             print(f"  [{c['collection']}] {c['path']}: {c['summary'][:80]}...")
 
     elif args.subcmd == "rm":
-        result = storage.remove_context(args.collection, getattr(args, "path", None))
-        if result.is_err:  # type: ignore[union-attr]
-            print(f"Error: {result.error}")  # type: ignore[union-attr]
-            sys.exit(1)
+        _unwrap_or_exit(storage.remove_context(args.collection, getattr(args, "path", None)), "remove context")
         print(f"Removed context from: {args.collection}")
 
 
@@ -221,12 +181,7 @@ def cmd_export(args: argparse.Namespace) -> None:
     import json
 
     storage = get_storage()
-    result = storage.list_documents()
-    if result.is_err:  # type: ignore[union-attr]
-        print(f"Error: {result.error}")  # type: ignore[union-attr]
-        sys.exit(1)
-
-    data = result.value  # type: ignore[union-attr]
+    data = _unwrap_or_exit(storage.list_documents(), "export")
 
     if not data:
         print("No documents to export.", file=sys.stderr)
@@ -274,10 +229,7 @@ def cmd_import(args: argparse.Namespace) -> None:
         }
         for item in data
     ]
-    result = storage.bulk_insert(docs)
-    if result.is_err:  # type: ignore[union-attr]
-        print(f"Error: {result.error}")  # type: ignore[union-attr]
-        sys.exit(1)
+    _unwrap_or_exit(storage.bulk_insert(docs), "import")
 
     print(f"Imported {len(data)} documents")
 
