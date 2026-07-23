@@ -88,6 +88,9 @@ def validate_file_mask(mask: str) -> str | None:
         return "File mask must not contain '..' (path traversal)"
     if mask.startswith("/"):
         return "File mask must not start with '/'"
+    dangerous = set('|;&$`')
+    if any(c in mask for c in dangerous):
+        return "File mask contains dangerous characters"
     return None
 
 
@@ -153,6 +156,10 @@ def auto_chunk(text: str, file_path: str | None = None) -> list[str]:
 
 
 # ── Auto Strategy ───────────────────────────────────────────────────────────
+
+
+def _sanitize_fts5_token(token: str) -> str:
+    return re.sub(r'[^\w]', '', token)
 
 
 def auto_strategy(query: str) -> str:
@@ -554,8 +561,7 @@ class Storage:
             # Sanitize: strip everything except alphanumeric, spaces, and hyphens
             sanitized = []
             for t in query.split():
-                # Remove all FTS5 operators and special characters
-                t = re.sub(r"[^a-zA-Z0-9\s\-]", "", t)
+                t = _sanitize_fts5_token(t)
                 t = t.strip()
                 if t:
                     sanitized.append(f'"{t}"')
@@ -880,6 +886,9 @@ class Storage:
         with self._config_lock:
             if self.config_path.exists():
                 try:
+                    if self.config_path.stat().st_size > 1_000_000:  # 1MB limit
+                        logger.warning("Config file too large, using defaults")
+                        return {"repos": {}}
                     return json.loads(self.config_path.read_text())
                 except json.JSONDecodeError:
                     logger.warning("Broken config.json, using defaults")
