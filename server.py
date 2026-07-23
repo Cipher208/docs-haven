@@ -30,17 +30,14 @@ def _unwrap(result: Any) -> dict:
 
 def _is_unsafe_path(path: str) -> bool:
     """Check if a path contains traversal or injection attempts."""
-    if ".." in path:
-        return True
-    if path.startswith("/"):
-        return True
-    if "\x00" in path:
-        return True
-    if "\\" in path:
-        return True
-    if "%2e" in path.lower() or "%2f" in path.lower():
-        return True
-    return False
+    return (
+        ".." in path
+        or path.startswith("/")
+        or "\x00" in path
+        or "\\" in path
+        or "%2e" in path.lower()
+        or "%2f" in path.lower()
+    )
 
 
 # Thread-safe singleton: double-checked locking pattern.
@@ -168,17 +165,7 @@ async def kb_delete(file_path: str, collection: str | None = None) -> dict:
         return {"error": "Invalid file path"}
     storage = _get_storage()
     if collection:
-        # Collection-scoped delete: only delete from specified collection
-        conn = storage._get_conn()
-        try:
-            conn.execute(
-                "DELETE FROM documents WHERE file_path = ? AND collection = ?",
-                (file_path, collection),
-            )
-            conn.commit()
-            return {"status": "deleted", "file_path": file_path, "collection": collection}
-        except Exception as e:
-            return {"error": str(e)}
+        return _unwrap(storage.delete_documents_scoped(file_path, collection))
     result = storage.delete_document(file_path)
     return _unwrap(result)
 
@@ -331,7 +318,7 @@ async def kb_conflict_judge(
         candidate_id: ID of the conflicting document
         judgment: 'supersedes', 'conflicts_with', or 'unrelated'
     """
-    return _get_detector().judge(new_id, candidate_id, judgment)
+    return _unwrap(_get_detector().judge(new_id, candidate_id, judgment))
 
 
 @mcp.tool()
@@ -424,7 +411,7 @@ async def kb_context_rm(
     return _unwrap(_get_storage().remove_context(collection, path))
 
 
-if __name__ == "__main__":
+def _run_server() -> None:
     import atexit
     import sys
 
@@ -449,3 +436,7 @@ if __name__ == "__main__":
         uvicorn.run(mcp.streamable_http_app(), host="127.0.0.1", port=port)
     else:
         mcp.run()
+
+
+if __name__ == "__main__":
+    _run_server()
