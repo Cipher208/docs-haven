@@ -124,5 +124,33 @@ def run_benchmark() -> None:
         print("=" * 60)
 
 
+def run_benchmark_json() -> dict:
+    """Run benchmark and return results as dict."""
+    import json
+
+    results: dict = {}
+    with tempfile.TemporaryDirectory() as d:
+        storage = Storage(Path(d))
+
+        for n in [100, 500, 1000]:
+            elapsed = benchmark_indexing(storage, n)
+            results[f"index_{n}"] = {
+                "docs": n,
+                "elapsed_s": round(elapsed, 3),
+                "docs_per_sec": round(n / elapsed),
+            }
+
+        results["search"] = benchmark_search(storage, n_queries=100)
+        storage.close()
+
+    return results
+
+
 if __name__ == "__main__":
-    run_benchmark()
+    import sys
+
+    if "--json" in sys.argv:
+        results = run_benchmark_json()
+        print(json.dumps(results, indent=2))
+    else:
+        run_benchmark()

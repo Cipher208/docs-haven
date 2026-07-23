@@ -1,0 +1,65 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+      - run: uv sync --extra test
+      - name: Run benchmark
+        id: bench
+        run: |
+          uv run python benchmark.py --json > bench_results.json
+          cat bench_results.json
+      - name: Check for regressions
+        if: github.event_name == 'pull_request'
+        run: |
+          # Compare against main branch baseline
+          BENCH_SCORE=$(cat bench_results.json | python -c "import sys,json; d=json.load(sys.stdin); print(d['search']['avg_ms'])")
+          echo "Current avg search latency: ${BENCH_SCORE}ms"
+          # Fail if avg > 10ms (regression threshold)
+          if (( $(echo "$BENCH_SCORE > 10.0" | bc -l) )); then
+            echo "::error::Benchmark regression: avg search latency ${BENCH_SCORE}ms > 10ms threshold"
+            exit 1
+          fi
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const bench = JSON.parse(fs.readFileSync('bench_results.json', 'utf8'));
+            const search = bench.search;
+            const body = `## Benchmark Results
+
+            | Metric | Value |
+            |--------|-------|
+            | Avg search latency | ${search.avg_ms}ms |
+            | P95 latency | ${search.p95_ms}ms |
+            | Throughput | ${search.queries_per_second} queries/sec |
+            | Index 1000 docs | ${bench.index_1000.elapsed_s}s |
+            `;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+      - name: Upload benchmark results
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ github.sha }}
+          path: bench_results.json
