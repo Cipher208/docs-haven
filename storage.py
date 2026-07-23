@@ -1090,24 +1090,27 @@ class Storage:
             return Ok(value=0)
 
         conn = self._get_conn()
-        updated = 0
 
+        # Delete old chunks for changed files
+        for item in changed:
+            conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, item["file_path"]))
+        conn.commit()
+
+        # Re-index changed files
+        updated = 0
         for item in changed:
             fp = item["file_path"]
-            full_path = repo_dir / fp
-
-            if item["status"] in (_ACTION_DELETED,):
-                conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, fp))
+            if item["status"] == _ACTION_DELETED:
                 updated += 1
-            elif item["status"] in ("changed", _ACTION_ADDED) and full_path.exists():
-                # Delete old chunks and re-index
-                conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, fp))
-                try:
-                    self._index_file(conn, full_path, repo_dir, collection, None)
-                    updated += 1
-                except (OSError, sqlite3.Error) as e:
-                    logger.debug("Reindexing %s failed: %s", fp, e)
-
+                continue
+            full = repo_dir / fp
+            if not full.exists() or full.is_symlink():
+                continue
+            try:
+                self._index_file(conn, full, repo_dir, collection, None)
+                updated += 1
+            except (OSError, sqlite3.Error) as e:
+                logger.debug("Reindexing %s failed: %s", fp, e)
         conn.commit()
         return Ok(value=updated)
 

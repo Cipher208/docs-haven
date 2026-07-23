@@ -76,6 +76,24 @@ class Syncer:
         self.sync_dir.mkdir(parents=True, exist_ok=True)
         self.chunks_dir.mkdir(parents=True, exist_ok=True)
 
+    def _build_export_data(self, collections_data: dict) -> dict:
+        """Build chunk data structure from collections."""
+        chunk = {"collections": {}, "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        total_docs = 0
+        for name, docs in collections_data.items():
+            chunk["collections"][name] = docs
+            total_docs += len(docs)
+        return chunk
+
+    def _write_chunk(self, chunk: dict, created_by: str) -> str | None:
+        """Serialize, compress, and write chunk. Returns chunk_id or None if duplicate."""
+        chunk_json = json.dumps(chunk, ensure_ascii=False).encode()
+        chunk_id = hashlib.sha256(chunk_json).hexdigest()[:16]
+        chunk_path = self.chunks_dir / f"{chunk_id}.json.gz"
+        with gzip.open(chunk_path, "wb") as f:
+            f.write(chunk_json)
+        return chunk_id
+
     def export(self, collections_data: dict, created_by: str = "unknown") -> dict:
         """Export collections data as a compressed chunk.
 
@@ -87,36 +105,18 @@ class Syncer:
             {chunk_id, collections, documents, isEmpty}
         """
         manifest = Manifest.from_file(self.manifest_path)
-        created_by = created_by or "unknown"
-
-        # Build chunk content
-        chunk: dict = {
-            "collections": {},
-            "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        }
-        total_docs = 0
-        for name, docs in collections_data.items():
-            chunk["collections"][name] = docs
-            total_docs += len(docs)
-
+        chunk = self._build_export_data(collections_data)
+        total_docs = sum(len(d) for d in chunk["collections"].values())
         if total_docs == 0:
             return {"isEmpty": True}
-
-        # Serialize and compress
         chunk_json = json.dumps(chunk, ensure_ascii=False).encode()
         chunk_id = hashlib.sha256(chunk_json).hexdigest()[:16]
-
-        # Check if already exists
         known = {c.id for c in manifest.chunks}
         if chunk_id in known:
             return {"isEmpty": True, "duplicate": True}
-
-        # Write compressed chunk
         chunk_path = self.chunks_dir / f"{chunk_id}.json.gz"
         with gzip.open(chunk_path, "wb") as f:
             f.write(chunk_json)
-
-        # Update manifest
         entry = ChunkEntry(
             id=chunk_id,
             created_by=created_by,
@@ -126,13 +126,7 @@ class Syncer:
         )
         manifest.chunks.append(entry)
         self._write_manifest(manifest)
-
-        return {
-            "chunk_id": chunk_id,
-            "collections": len(collections_data),
-            "documents": total_docs,
-            "isEmpty": False,
-        }
+        return {"chunk_id": chunk_id, "collections": len(collections_data), "documents": total_docs, "isEmpty": False}
 
     def _import_chunk_data(self, chunk_data: dict, storage) -> tuple[int, int]:
         """Import a single chunk's data into storage. Returns (collections, docs) counts."""

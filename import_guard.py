@@ -53,18 +53,26 @@ def _check_python_imports(content: str, root: Path) -> tuple[list[str], list[str
     return imports, phantom
 
 
+def _resolve_js_package(spec: str) -> str:
+    """Resolve JS package name from import spec."""
+    if spec.startswith(".") or spec.startswith("/"):
+        return ""  # relative/local — skip
+    if spec.startswith("@"):
+        return "/".join(spec.split("/")[:2])
+    return spec.split("/")[0]
+
+
 def _check_js_imports(content: str, root: Path) -> tuple[list[str], list[str]]:
     imports = []
     phantom = []
     for match in _JS_IMPORT.finditer(content):
         spec = match.group(1) or match.group(2) or match.group(3)
-        if spec:
-            imports.append(spec)
-            if not spec.startswith(".") and not spec.startswith("/"):
-                pkg = spec.split("/")[0] if not spec.startswith("@") else "/".join(spec.split("/")[:2])
-                nm_path = root / "node_modules" / pkg
-                if not nm_path.exists():
-                    phantom.append(spec)
+        if not spec:
+            continue
+        imports.append(spec)
+        pkg = _resolve_js_package(spec)
+        if pkg and not (root / "node_modules" / pkg).exists():
+            phantom.append(spec)
     return imports, phantom
 
 
