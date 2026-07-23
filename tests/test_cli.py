@@ -192,9 +192,7 @@ def test_cli_uri_resolve(capsys):
 def test_cli_conflicts_list(capsys):
     """Test conflicts list command."""
     with patch("cli.get_storage") as mock:
-        mock.return_value.list_collections.return_value = Ok(
-            value=[{"name": "core__fastapi", "count": 10, "chunks": 25}]
-        )
+        mock.return_value.list_collections.return_value = Ok(value=[{"name": "core__fastapi", "count": 10, "chunks": 25}])
         with patch("sys.argv", ["cli", "conflicts", "list"]):
             main()
     captured = capsys.readouterr()
@@ -206,7 +204,7 @@ def test_cli_conflicts_check_no_conflicts(capsys):
     """Test conflicts check with no conflicts."""
     from conflicts import ConflictDetector
 
-    with patch("cli.get_storage") as mock:
+    with patch("cli.get_storage"):
         with patch.object(ConflictDetector, "detect") as mock_detect:
             mock_detect.return_value = type("R", (), {"has_conflicts": False, "candidates": []})()
             with patch("sys.argv", ["cli", "conflicts", "check", "test title", "test content"]):
@@ -219,14 +217,16 @@ def test_cli_conflicts_check_with_conflicts(capsys):
     """Test conflicts check with conflicts found."""
     from conflicts import ConflictDetector
 
-    with patch("cli.get_storage") as mock:
+    with patch("cli.get_storage"):
         with patch.object(ConflictDetector, "detect") as mock_detect:
-            mock_result = type("R", (), {
-                "has_conflicts": True,
-                "candidates": [
-                    {"title": "Existing Doc", "collection": "test", "score": 0.85, "path": "test.md", "snippet": "Some content..."}
-                ]
-            })()
+            mock_result = type(
+                "R",
+                (),
+                {
+                    "has_conflicts": True,
+                    "candidates": [{"title": "Existing Doc", "collection": "test", "score": 0.85, "path": "test.md", "snippet": "Some content..."}],
+                },
+            )()
             mock_detect.return_value = mock_result
             with patch("sys.argv", ["cli", "conflicts", "check", "test title", "test content"]):
                 main()
@@ -239,7 +239,7 @@ def test_cli_conflicts_suggest_no_conflicts(capsys):
     """Test conflicts suggest with no conflicts."""
     from conflicts import ConflictDetector
 
-    with patch("cli.get_storage") as mock:
+    with patch("cli.get_storage"):
         with patch.object(ConflictDetector, "suggest_resolution") as mock_suggest:
             mock_suggest.return_value = {"suggestion": "no_action", "confidence": 1.0, "reason": "No conflicts detected"}
             with patch("sys.argv", ["cli", "conflicts", "suggest", "nonexistent"]):
@@ -253,7 +253,7 @@ def test_cli_conflicts_suggest_error():
     """Test conflicts suggest with error."""
     from conflicts import ConflictDetector
 
-    with patch("cli.get_storage") as mock:
+    with patch("cli.get_storage"):
         with patch.object(ConflictDetector, "suggest_resolution") as mock_suggest:
             mock_suggest.return_value = {"error": "Document not found: bad_id"}
             with patch("sys.argv", ["cli", "conflicts", "suggest", "bad_id"]):

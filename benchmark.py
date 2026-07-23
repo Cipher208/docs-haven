@@ -126,7 +126,6 @@ def run_benchmark() -> None:
 
 def run_benchmark_json() -> dict:
     """Run benchmark and return results as dict."""
-    import json
 
     results: dict = {}
     with tempfile.TemporaryDirectory() as d:
@@ -147,6 +146,7 @@ def run_benchmark_json() -> dict:
 
 
 if __name__ == "__main__":
+    import json
     import sys
 
     if "--json" in sys.argv:

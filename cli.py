@@ -282,7 +282,7 @@ def cmd_conflicts(args: argparse.Namespace) -> None:
 
         print(f"Conflicts for: {details['new_title']}")
         print(f"Document ID: {details['new_id']}")
-        print(f"\nCandidates:")
+        print("\nCandidates:")
 
         for i, c in enumerate(details["candidates"], 1):
             print(f"\n  [{i}] {c['title']}")
@@ -293,12 +293,12 @@ def cmd_conflicts(args: argparse.Namespace) -> None:
 
         # Show existing judgments
         if details["judgments"]:
-            print(f"\nExisting judgments:")
+            print("\nExisting judgments:")
             for j in details["judgments"]:
                 print(f"  {j.get('candidate_id', '?')}: {j.get('judgment', '?')}")
 
         # Interactive resolution
-        print(f"\nJudgment options: supersedes, conflicts_with, unrelated")
+        print("\nJudgment options: supersedes, conflicts_with, unrelated")
         for i, c in enumerate(details["candidates"], 1):
             judgment = input(f"  [{i}] {c['title'][:50]}... judgment: ").strip()
             if judgment in ("supersedes", "conflicts_with", "unrelated"):
