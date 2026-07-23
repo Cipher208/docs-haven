@@ -12,6 +12,7 @@ from storage import Storage
 from uri import URIRouter
 
 _ERR_NOT_FOUND = "not found"
+_ERR_PREFIX = "Error:"
 _COLLECTION_LABEL = "Collection"
 
 _storage: Storage | None = None
@@ -105,7 +106,7 @@ def cmd_uri(args: argparse.Namespace) -> None:
         elif args.subcmd == "domains":
             _uri_domains()
     except ValueError as e:
-        print(f"Error: {e}")
+        print(f"{_ERR_PREFIX} {e}")
         sys.exit(1)
 
 
@@ -172,7 +173,7 @@ def cmd_delete(args: argparse.Namespace) -> None:
     storage = get_storage()
     file_path = args.file_path
     if _is_unsafe_path(file_path):
-        print(f"Error: {_ERR_INVALID_PATH}")
+        print(f"{_ERR_PREFIX} {_ERR_INVALID_PATH}")
         sys.exit(1)
     result = _unwrap_or_exit(storage.delete_document(file_path), "delete")
     print(f"Deleted: {result['file_path']}")
@@ -230,10 +231,10 @@ def cmd_import(args: argparse.Namespace) -> None:
 
     file_path = Path(args.file)
     if not file_path.exists():
-        print(f"Error: File not found: {args.file}")
+        print(f"{_ERR_PREFIX} File not found: {args.file}")
         sys.exit(1)
     if not file_path.suffix == ".json":
-        print(f"Error: Expected .json file, got: {file_path.suffix}")
+        print(f"{_ERR_PREFIX} Expected .json file, got: {file_path.suffix}")
         sys.exit(1)
 
     storage = get_storage()
@@ -241,7 +242,7 @@ def cmd_import(args: argparse.Namespace) -> None:
         with open(args.file) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"Error: Invalid JSON: {e}")
+        print(f"{_ERR_PREFIX} Invalid JSON: {e}")
         sys.exit(1)
 
     # Batch insert all documents at once
@@ -300,7 +301,7 @@ def _conflict_resolve(new_id: str) -> None:
     detector = ConflictDetector(get_storage())
     details = detector.get_conflict_details(new_id)
     if "error" in details:
-        print(f"Error: {details['error']}")
+        print(f"{_ERR_PREFIX} {details['error']}")
         sys.exit(1)
 
     if not details["has_conflicts"]:
@@ -342,7 +343,7 @@ def _conflict_suggest(new_id: str) -> None:
     detector = ConflictDetector(get_storage())
     suggestion = detector.suggest_resolution(new_id)
     if "error" in suggestion:
-        print(f"Error: {suggestion['error']}")
+        print(f"{_ERR_PREFIX} {suggestion['error']}")
         sys.exit(1)
     print(f"Suggestion: {suggestion['suggestion']}")
     print(f"Confidence: {suggestion['confidence']:.0%}")

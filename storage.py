@@ -45,27 +45,40 @@ _MMAP_SIZE = 256 * 1024 * 1024  # 256 MiB
 _SECONDS_PER_DAY = 86400
 _HYBRID_MULTIPLIER = 3
 
+# Field name constants
+_FIELD_SCORE = "score"
+
+# Action/status constants
+_ACTION_ADDED = "added"
+_ACTION_DELETED = "deleted"
+
+# Default value constants
+_UNKNOWN = "unknown"
+
+# Error message constants
+_ERR_COLLECTION_NOT_FOUND = "Collection not found"
+
 
 def validate_url(url: str) -> str | None:
     if not url.startswith(_VALID_URL_SCHEMES):
         return f"Invalid URL scheme: {url}"
     if len(url) > 2048:
         return "URL too long (max 2048 chars)"
-    # Block shell metacharacters and newlines that could exploit git
     dangerous_chars = set("\n\r\t`$&|;<>\\")
     if any(c in url for c in dangerous_chars):
         return "URL contains dangerous characters"
-    # Block URL-encoded traversal
     if "%2e" in url.lower() or "%2f" in url.lower():
         return "URL contains encoded path traversal"
-    # Domain allowlist (prevent SSRF to internal hosts)
+    return _validate_url_domain(url)
+
+
+def _validate_url_domain(url: str) -> str | None:
     from urllib.parse import urlparse
 
     try:
         parsed = urlparse(url)
         domain = parsed.hostname or ""
         if domain and domain not in _ALLOWED_GIT_DOMAINS:
-            # Allow git@ style URLs (e.g., git@github.com:user/repo.git)
             if url.startswith("git@"):
                 git_host = url.split("@")[1].split(":")[0] if "@" in url else ""
                 if git_host not in _ALLOWED_GIT_DOMAINS:
@@ -217,14 +230,12 @@ def type_boost(query: str, result: dict) -> float:
     title_lower = result.get("title", "").lower()
     content_lower = result.get("content", "").lower()[:200]
 
-    boost = 0.0
     for keywords in TYPE_KEYWORDS.values():
-        for kw in keywords:
-            if kw in query_lower:
-                if any(k in title_lower or k in content_lower for k in keywords):
-                    boost = max(boost, 0.15)
-                    break
-    return boost
+        if not any(kw in query_lower for kw in keywords):
+            continue
+        if any(k in title_lower or k in content_lower for k in keywords):
+            return 0.15
+    return 0.0
 
 
 # ── Importance Scoring ────────────────────────────────────────────────────
@@ -516,7 +527,7 @@ class Storage:
         }
         self._save_config(config)
 
-        return Ok(value={"name": name, "status": "added", "files_indexed": indexed, "chunks": total_chunks})
+        return Ok(value={"name": name, "status": _ACTION_ADDED, "files_indexed": indexed, "chunks": total_chunks})
 
     def _merge_hybrid(self, results: list[dict], query: str, collections: list[str] | None, limit: int) -> list[dict]:
         like_results = self._search_like(query, collections, limit)
@@ -529,20 +540,20 @@ class Storage:
 
     def _apply_boosts(self, results: list[dict], query: str, explain: bool) -> list[dict]:
         for r in results:
-            base_score = r.get("score", 0)
+            base_score = r.get(_FIELD_SCORE, 0)
             boost = type_boost(query, r)
             imp_boost = importance_boost(r)
             total_boost = boost + imp_boost
             if total_boost > 0:
-                r["score"] = min(1.0, base_score + total_boost)
+                r[_FIELD_SCORE] = min(1.0, base_score + total_boost)
                 r["boost"] = total_boost
             if explain:
                 r["explain"] = {
                     "base_score": round(base_score, 3),
                     "type_boost": round(boost, 3),
                     "importance_boost": round(imp_boost, 3),
-                    "final_score": round(r.get("score", 0), 3),
-                    "source": r.get("source", "unknown"),
+                    "final_score": round(r.get(_FIELD_SCORE, 0), 3),
+                    "source": r.get("source", _UNKNOWN),
                 }
         return results
 
@@ -566,7 +577,7 @@ class Storage:
         # Fallback to LIKE
         if len(results) < limit:
             results = self._merge_hybrid(results, query, collections, limit)
-        results.sort(key=lambda r: r.get("score", 0), reverse=True)
+        results.sort(key=lambda r: r.get(_FIELD_SCORE, 0), reverse=True)
         return results[:max_intermediate]
 
     def search(
@@ -602,9 +613,9 @@ class Storage:
             results = self._search_fts5(query, collections, limit)
 
         results = self._apply_boosts(results, query, explain)
-        results.sort(key=lambda x: -x.get("score", 0))
+        results.sort(key=lambda x: -x.get(_FIELD_SCORE, 0))
         if min_score > 0:
-            results = [r for r in results if r.get("score", 0) >= min_score]
+            results = [r for r in results if r.get(_FIELD_SCORE, 0) >= min_score]
 
         try:
             self._increment_retrieval([r["path"] for r in results[:limit]])
@@ -624,7 +635,7 @@ class Storage:
             "title": row["title"],
             "chunk": row["chunk_index"],
             "total_chunks": row["total_chunks"],
-            "score": score if score is not None else (round(-rank, 3) if rank is not None else 0),
+            _FIELD_SCORE: score if score is not None else (round(-rank, 3) if rank is not None else 0),
             "source": source,
             "created_at": row["created_at"] if "created_at" in row.keys() else None,
             "retrieval_count": row["retrieval_count"] if "retrieval_count" in row.keys() else 0,
@@ -789,7 +800,7 @@ class Storage:
         try:
             conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
             conn.commit()
-            return Ok(value={"status": "deleted", "file_path": file_path})
+            return Ok(value={"status": _ACTION_DELETED, "file_path": file_path})
         except sqlite3.Error as e:
             logger.debug("Delete failed: %s", e)
             return Err(error=str(e))
@@ -861,7 +872,7 @@ class Storage:
                 (file_path, collection),
             )
             conn.commit()
-            return Ok(value={"status": "deleted", "file_path": file_path, "collection": collection})
+            return Ok(value={"status": _ACTION_DELETED, "file_path": file_path, "collection": collection})
         except sqlite3.Error as e:
             return Err(error=str(e))
 
@@ -950,7 +961,7 @@ class Storage:
             # Check if old collection exists
             count = conn.execute("SELECT COUNT(*) FROM documents WHERE collection = ?", (old_name,)).fetchone()[0]
             if count == 0:
-                return Err(error=f"Collection not found: {old_name}")
+                return Err(error=f"{_ERR_COLLECTION_NOT_FOUND}: {old_name}")
 
             # Check if new name already exists
             existing = conn.execute("SELECT COUNT(*) FROM documents WHERE collection = ?", (new_name,)).fetchone()[0]
@@ -1126,7 +1137,7 @@ class Storage:
                 (collection, path.strip(), summary.strip()),
             )
             conn.commit()
-            return Ok(value={"status": "added", "collection": collection, "path": path.strip()})
+            return Ok(value={"status": _ACTION_ADDED, "collection": collection, "path": path.strip()})
         except sqlite3.Error as e:
             logger.debug("Add context failed: %s", e)
             return Err(error=str(e))
@@ -1215,12 +1226,12 @@ class Storage:
                         if current_files[fp] != old_hash:
                             changed.append({"file_path": fp, "old_hash": old_hash, "new_hash": current_files[fp], "status": "changed"})
                     else:
-                        changed.append({"file_path": fp, "old_hash": old_hash, "new_hash": None, "status": "deleted"})
+                        changed.append({"file_path": fp, "old_hash": old_hash, "new_hash": None, "status": _ACTION_DELETED})
 
                 # Check for added files
                 for fp in current_files:
                     if fp not in stored:
-                        changed.append({"file_path": fp, "old_hash": None, "new_hash": current_files[fp], "status": "added"})
+                        changed.append({"file_path": fp, "old_hash": None, "new_hash": current_files[fp], "status": _ACTION_ADDED})
 
             return changed
         except (sqlite3.Error, OSError) as e:
@@ -1251,10 +1262,10 @@ class Storage:
             fp = item["file_path"]
             full_path = repo_dir / fp
 
-            if item["status"] in ("deleted",):
+            if item["status"] in (_ACTION_DELETED,):
                 conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, fp))
                 updated += 1
-            elif item["status"] in ("changed", "added") and full_path.exists():
+            elif item["status"] in ("changed", _ACTION_ADDED) and full_path.exists():
                 # Delete old chunks and re-index
                 conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, fp))
                 try:
