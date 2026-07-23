@@ -5,16 +5,14 @@ Thank you for your interest in contributing!
 ## Development Setup
 
 ```bash
-git clone https://github.com/Cipher208/docs-haven.git
-cd docs-haven
+uv sync --extra dev
+```
+
+Or with pip:
+```bash
 python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -e ".[dev]"
-```
-
-Or with uv (recommended):
-```bash
-uv sync --extra dev
 ```
 
 ## Running Tests
@@ -27,9 +25,9 @@ pytest tests/ --cov=. --cov-report=term-missing  # with coverage
 ## Code Quality
 
 ```bash
-ruff check src/ tests/              # lint
-ruff format src/ tests/             # format
-mypy src/ --ignore-missing-imports  # type check
+ruff check . tests/              # lint
+ruff format . tests/             # format
+mypy . --ignore-missing-imports  # type check
 ```
 
 ## Branch Naming
@@ -57,8 +55,8 @@ test: add tests for new feature
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
 4. Run tests (`pytest tests/ -v`)
-5. Run linting (`ruff check src/ tests/`)
-6. Run type checking (`mypy src/ --ignore-missing-imports`)
+5. Run linting (`ruff check . tests/`)
+6. Run type checking (`mypy . --ignore-missing-imports`)
 7. Commit your changes with conventional commit message
 8. Push to the branch (`git push origin feature/amazing-feature`)
 9. Open a Pull Request with a clear description

@@ -25,7 +25,7 @@
 - **URI routing** — organize knowledge by domain: `core://`, `ref://`, `guide://`
 - **Git sync** — compressed chunks for multi-machine sync (no merge conflicts)
 - **Conflict detection** — flag contradictions when adding documents
-- **MCP server** — 16 tools for any MCP-compatible agent
+- **MCP server** — 20 tools for any MCP-compatible agent
 - **Document chunking** — split long documents for better search precision
 - **Result type** — Pydantic v2 models with Ok/Err pattern
 - **Input validation** — URL, collection names, query length validated
@@ -253,7 +253,7 @@ Then ask your agent:
 <details>
 <summary><b>What is DocsHaven?</b></summary>
 
-DocsHaven is a local knowledge base designed for AI agents. It provides full-text search via SQLite FTS5, organizes knowledge by URI domains (core://, ref://, guide://), and detects contradictions when adding new documents. It runs as an MCP server with 16 tools.
+DocsHaven is a local knowledge base designed for AI agents. It provides full-text search via SQLite FTS5, organizes knowledge by URI domains (core://, ref://, guide://), and detects contradictions when adding new documents. It runs as an MCP server with 20 tools.
 
 </details>
 
@@ -267,7 +267,7 @@ DocsHaven adds a complete knowledge management layer on top of SQLite: automatic
 <details>
 <summary><b>Can I use this with Claude Desktop / Cursor / other AI agents?</b></summary>
 
-Yes. DocsHaven runs as an MCP server. Add it to your MCP client config and all 16 tools become available to your agent.
+Yes. DocsHaven runs as an MCP server. Add it to your MCP client config and all 20 tools become available to your agent.
 
 </details>
 
@@ -298,7 +298,7 @@ docs-haven/
 ├── result.py        # Ok/Err Result type (Pydantic v2)
 ├── cli.py           # CLI interface (11 commands)
 ├── benchmark.py     # Performance benchmarks
-├── tests/           # pytest test suite (275 tests, 91% coverage)
+├── tests/           # pytest test suite (284 tests, 91% coverage)
 ├── docs/            # Documentation + 8 ADRs
 └── pyproject.toml   # Package config (uv)
 ```
