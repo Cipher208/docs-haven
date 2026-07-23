@@ -37,6 +37,14 @@ _VALID_URL_SCHEMES = ("https://", "http://", "git@")
 _ALLOWED_GIT_DOMAINS = {"github.com", "gitlab.com", "bitbucket.org", "codeberg.org"}
 _COLLECTION_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
+# SQLite PRAGMA constants
+_CACHE_SIZE_KB = 64000
+_MMAP_SIZE = 256 * 1024 * 1024  # 256 MiB
+
+# Scoring constants
+_SECONDS_PER_DAY = 86400
+_HYBRID_MULTIPLIER = 3
+
 
 def validate_url(url: str) -> str | None:
     if not url.startswith(_VALID_URL_SCHEMES):
@@ -64,7 +72,7 @@ def validate_url(url: str) -> str | None:
                     return f"Domain not allowed: {git_host}"
             else:
                 return f"Domain not allowed: {domain}"
-    except Exception:
+    except (ValueError, AttributeError):
         pass
     return None
 
@@ -145,6 +153,30 @@ def chunk_code(text: str) -> list[str]:
 # File extensions that should use code chunking
 _CODE_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb", ".php"}
 
+# Binary file extensions to skip during indexing
+_BINARY_SUFFIXES = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".pyc",
+    ".pyo",
+    ".so",
+    ".dll",
+    ".exe",
+    ".bin",
+    ".whl",
+    ".zip",
+    ".tar",
+    ".gz",
+}
+
 
 def auto_chunk(text: str, file_path: str | None = None) -> list[str]:
     """Auto-select chunking strategy based on file type."""
@@ -212,7 +244,7 @@ def importance_boost(result: dict, now: float | None = None) -> float:
             from datetime import datetime
 
             created_ts = datetime.fromisoformat(created_at).timestamp()
-            age_days = (now - created_ts) / 86400
+            age_days = (now - created_ts) / _SECONDS_PER_DAY
             recency = math.exp(-0.693 * age_days / AGE_HALF_LIFE_DAYS)
             boost += RECENCY_WEIGHT * recency
         except (ValueError, TypeError):
@@ -277,9 +309,9 @@ class Storage:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-64000")
+        conn.execute(f"PRAGMA cache_size=-{_CACHE_SIZE_KB}")
         conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute("PRAGMA mmap_size=268435456")
+        conn.execute(f"PRAGMA mmap_size={_MMAP_SIZE}")
         self._local.conn = conn
         if not self._db_initialized:
             with self._init_lock:
@@ -366,28 +398,6 @@ class Storage:
         except ValueError:
             return 0
         # Skip binary files
-        _BINARY_SUFFIXES = {
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".gif",
-            ".svg",
-            ".ico",
-            ".woff",
-            ".woff2",
-            ".ttf",
-            ".eot",
-            ".pyc",
-            ".pyo",
-            ".so",
-            ".dll",
-            ".exe",
-            ".bin",
-            ".whl",
-            ".zip",
-            ".tar",
-            ".gz",
-        }
         if f.suffix.lower() in _BINARY_SUFFIXES:
             return 0
         # Size guard — skip files over 500KB
@@ -514,7 +524,7 @@ class Storage:
         return results
 
     def _run_hybrid_search(self, query: str, collections: list[str] | None, limit: int, min_score: float) -> list[dict]:
-        max_intermediate = limit * 3
+        max_intermediate = limit * _HYBRID_MULTIPLIER
         results = self._search_fts5(query, collections, limit * 2)
         # Try vector if FTS results are sparse
         if len(results) < limit:
@@ -575,8 +585,8 @@ class Storage:
 
         try:
             self._increment_retrieval([r["path"] for r in results[:limit]])
-        except Exception:
-            pass
+        except (sqlite3.Error, KeyError) as e:
+            logger.debug("Retrieval count update failed: %s", e)
 
         return Ok(value=results[:limit])
 

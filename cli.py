@@ -7,6 +7,7 @@ import atexit
 import sys
 from typing import Any
 
+from server import _ERR_INVALID_PATH, _is_unsafe_path
 from storage import Storage
 from uri import URIRouter
 
@@ -146,8 +147,8 @@ def cmd_delete(args: argparse.Namespace) -> None:
     """Delete a document."""
     storage = get_storage()
     file_path = args.file_path
-    if ".." in file_path or file_path.startswith("/"):
-        print("Error: Invalid file path")
+    if _is_unsafe_path(file_path):
+        print(f"Error: {_ERR_INVALID_PATH}")
         sys.exit(1)
     result = _unwrap_or_exit(storage.delete_document(file_path), "delete")
     print(f"Deleted: {result['file_path']}")

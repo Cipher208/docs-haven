@@ -16,6 +16,8 @@ from uri import URIRouter
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("docs-haven")
 
+_ERR_INVALID_PATH = "Invalid file path"
+
 mcp = FastMCP("docs-haven")
 
 
@@ -125,7 +127,7 @@ async def kb_get(file_path: str) -> dict:
     """
     # Path traversal protection
     if _is_unsafe_path(file_path):
-        return {"error": "Invalid file path"}
+        return {"error": _ERR_INVALID_PATH}
     result = _get_storage().get(file_path)
     return _unwrap(result)
 
@@ -140,7 +142,7 @@ async def kb_update(file_path: str, content: str, title: str | None = None) -> d
         title: Optional new title
     """
     if _is_unsafe_path(file_path):
-        return {"error": "Invalid file path"}
+        return {"error": _ERR_INVALID_PATH}
     if len(content) > 10_000_000:  # 10MB limit
         return {"error": "Content too large (max 10MB)"}
     storage = _get_storage()
@@ -157,7 +159,7 @@ async def kb_delete(file_path: str, collection: str | None = None) -> dict:
         collection: Optional collection scope (prevents cross-collection deletes)
     """
     if _is_unsafe_path(file_path):
-        return {"error": "Invalid file path"}
+        return {"error": _ERR_INVALID_PATH}
     storage = _get_storage()
     if collection:
         return _unwrap(storage.delete_documents_scoped(file_path, collection))
@@ -192,7 +194,7 @@ async def kb_check_imports(file_path: str, repo_root: str = ".") -> dict:
         repo_root: Repository root directory (default: current dir)
     """
     if _is_unsafe_path(file_path):
-        return {"error": "Invalid file path"}
+        return {"error": _ERR_INVALID_PATH}
     if _is_unsafe_path(repo_root):
         return {"error": "Invalid repo root path"}
     return check_imports(file_path, repo_root, _get_storage())

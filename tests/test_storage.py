@@ -4,8 +4,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
 from conftest import insert_doc
+
 from storage import Storage, auto_strategy, chunk_text, importance_boost, type_boost
 
 
