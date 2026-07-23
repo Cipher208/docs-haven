@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from storage import Storage, auto_strategy, chunk_text, type_boost, importance_boost
+from storage import Storage, auto_strategy, chunk_text, importance_boost, type_boost
 
 
 @pytest.fixture

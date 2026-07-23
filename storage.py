@@ -210,6 +210,7 @@ def importance_boost(result: dict, now: float | None = None) -> float:
     if created_at:
         try:
             from datetime import datetime
+
             created_ts = datetime.fromisoformat(created_at).timestamp()
             age_days = (now - created_ts) / 86400
             recency = math.exp(-0.693 * age_days / AGE_HALF_LIFE_DAYS)
@@ -597,8 +598,7 @@ class Storage:
                 if len(parts) == 2:
                     collection, file_path = parts
                     conn.execute(
-                        "UPDATE documents SET retrieval_count = retrieval_count + 1 "
-                        "WHERE collection = ? AND file_path = ?",
+                        "UPDATE documents SET retrieval_count = retrieval_count + 1 WHERE collection = ? AND file_path = ?",
                         (collection, file_path),
                     )
             conn.commit()
