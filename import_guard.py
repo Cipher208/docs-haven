@@ -28,11 +28,42 @@ _JS_IMPORT = re.compile(
 )
 
 
-def check_imports(
-    file_path: str,
-    repo_root: str = ".",
-    storage: Storage | None = None,
-) -> dict:
+def _check_python_imports(content: str, root: Path) -> tuple[list[str], list[str]]:
+    imports = []
+    phantom = []
+    for match in _PYTHON_IMPORT.finditer(content):
+        module = match.group(1) or match.group(2)
+        if module:
+            imports.append(module)
+            parts = module.split(".")
+            module_name = parts[0]
+            if module_name in _STDLIB_MODULES:
+                continue
+            local_path = root / f"{module_name}.py"
+            local_pkg = root / module_name / "__init__.py"
+            src_path = root / "src" / f"{module_name}.py"
+            src_pkg = root / "src" / module_name / "__init__.py"
+            if not (local_path.exists() or local_pkg.exists() or src_path.exists() or src_pkg.exists()):
+                phantom.append(module)
+    return imports, phantom
+
+
+def _check_js_imports(content: str, root: Path) -> tuple[list[str], list[str]]:
+    imports = []
+    phantom = []
+    for match in _JS_IMPORT.finditer(content):
+        spec = match.group(1) or match.group(2) or match.group(3)
+        if spec:
+            imports.append(spec)
+            if not spec.startswith(".") and not spec.startswith("/"):
+                pkg = spec.split("/")[0] if not spec.startswith("@") else "/".join(spec.split("/")[:2])
+                nm_path = root / "node_modules" / pkg
+                if not nm_path.exists():
+                    phantom.append(spec)
+    return imports, phantom
+
+
+def check_imports(file_path: str, repo_root: str = ".", storage: Storage | None = None) -> dict:
     """Check if imports in a file reference real modules.
 
     Args:
@@ -54,37 +85,12 @@ def check_imports(
     except OSError:
         return {"imports": [], "phantom_imports": [], "status": "read_error"}
 
-    imports = []
-    phantom = []
-
     if full_path.suffix in (".py",):
-        for match in _PYTHON_IMPORT.finditer(content):
-            module = match.group(1) or match.group(2)
-            if module:
-                imports.append(module)
-                # Check if module exists locally
-                parts = module.split(".")
-                module_name = parts[0]
-                local_path = root / f"{module_name}.py"
-                local_pkg = root / module_name / "__init__.py"
-                src_path = root / "src" / f"{module_name}.py"
-                src_pkg = root / "src" / module_name / "__init__.py"
-                if module.split(".")[0] in _STDLIB_MODULES:
-                    continue
-                if not (local_path.exists() or local_pkg.exists() or src_path.exists() or src_pkg.exists()):
-                    phantom.append(module)
-
+        imports, phantom = _check_python_imports(content, root)
     elif full_path.suffix in (".js", ".ts", ".jsx", ".tsx"):
-        for match in _JS_IMPORT.finditer(content):
-            spec = match.group(1) or match.group(2) or match.group(3)
-            if spec:
-                imports.append(spec)
-                # Check if package exists in node_modules
-                if not spec.startswith(".") and not spec.startswith("/"):
-                    pkg = spec.split("/")[0] if not spec.startswith("@") else "/".join(spec.split("/")[:2])
-                    nm_path = root / "node_modules" / pkg
-                    if not nm_path.exists():
-                        phantom.append(spec)
+        imports, phantom = _check_js_imports(content, root)
+    else:
+        imports, phantom = [], []
 
     return {
         "imports": imports,

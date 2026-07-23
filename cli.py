@@ -11,6 +11,9 @@ from server import _ERR_INVALID_PATH, _is_unsafe_path
 from storage import Storage
 from uri import URIRouter
 
+_ERR_NOT_FOUND = "not found"
+_COLLECTION_LABEL = "Collection"
+
 _storage: Storage | None = None
 
 
@@ -106,41 +109,52 @@ def cmd_list(args: argparse.Namespace) -> None:
         print(f"  {c['name']}: {c['count']} docs, {c['chunks']} chunks{ctx_str}")
 
 
+def _collection_list() -> None:
+    result = _unwrap_or_exit(get_storage().list_collections(), "list collections")
+    for c in result:
+        domain = c.get("domain", "")
+        domain_str = f" [{domain}]" if domain else ""
+        print(f"  {c['name']}{domain_str}: {c['count']} docs, {c['chunks']} chunks")
+
+
+def _collection_show(name: str) -> None:
+    result = _unwrap_or_exit(get_storage().list_collections(), "list collections")
+    for c in result:
+        if c["name"] == name:
+            print(f"{_COLLECTION_LABEL}: {c['name']}")
+            print(f"  Documents: {c['count']}")
+            print(f"  Chunks: {c['chunks']}")
+            ctx_count = c.get("context_count", 0)
+            if ctx_count > 0:
+                print(f"  Contexts: {ctx_count} attachments")
+            if c.get("contexts"):
+                print(f"  Context paths: {', '.join(c['contexts'][:5])}")
+            if c.get("domain"):
+                print(f"  Domain: {c['domain']}")
+            return
+    print(f"{_COLLECTION_LABEL} {_ERR_NOT_FOUND}: {name}")
+
+
+def _collection_remove(name: str) -> None:
+    _unwrap_or_exit(get_storage().remove_collection(name), "remove collection")
+    print(f"Removed collection: {name}")
+
+
+def _collection_rename(old_name: str, new_name: str) -> None:
+    _unwrap_or_exit(get_storage().rename_collection(old_name, new_name), "rename collection")
+    print(f"Renamed: {old_name} → {new_name}")
+
+
 def cmd_collection(args: argparse.Namespace) -> None:
     """Collection management."""
-    storage = get_storage()
-
     if args.subcmd == "list":
-        result = _unwrap_or_exit(storage.list_collections(), "list collections")
-        for c in result:
-            domain = c.get("domain", "")
-            domain_str = f" [{domain}]" if domain else ""
-            print(f"  {c['name']}{domain_str}: {c['count']} docs, {c['chunks']} chunks")
-
+        _collection_list()
     elif args.subcmd == "show":
-        result = _unwrap_or_exit(storage.list_collections(), "list collections")
-        for c in result:
-            if c["name"] == args.name:
-                print(f"Collection: {c['name']}")
-                print(f"  Documents: {c['count']}")
-                print(f"  Chunks: {c['chunks']}")
-                ctx_count = c.get("context_count", 0)
-                if ctx_count > 0:
-                    print(f"  Contexts: {ctx_count} attachments")
-                if c.get("contexts"):
-                    print(f"  Context paths: {', '.join(c['contexts'][:5])}")
-                if c.get("domain"):
-                    print(f"  Domain: {c['domain']}")
-                return
-        print(f"Collection not found: {args.name}")
-
+        _collection_show(args.name)
     elif args.subcmd == "remove":
-        _unwrap_or_exit(storage.remove_collection(args.name), "remove collection")
-        print(f"Removed collection: {args.name}")
-
+        _collection_remove(args.name)
     elif args.subcmd == "rename":
-        _unwrap_or_exit(storage.rename_collection(args.old_name, args.new_name), "rename collection")
-        print(f"Renamed: {args.old_name} → {args.new_name}")
+        _collection_rename(args.old_name, args.new_name)
 
 
 def cmd_delete(args: argparse.Namespace) -> None:
