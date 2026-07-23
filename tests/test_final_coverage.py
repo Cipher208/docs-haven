@@ -27,7 +27,8 @@ class TestCLIErrorPaths:
             with patch("sys.argv", ["cli", "collection", "show", "nonexistent"]):
                 main()
         captured = capsys.readouterr()
-        assert "not found" in captured.out
+        assert "not found" in captured.out.lower()
+        assert "nonexistent" in captured.out
 
     def test_collection_remove_error(self):
         with patch("cli.get_storage") as mock:
@@ -104,13 +105,19 @@ class TestStorageEdgeCases:
         storage.add_context("test", "overview", "Summary")
         result = storage.list_collections()
         assert result.is_ok
+        assert len(result.value) == 1
+        assert result.value[0]["name"] == "test"
         assert result.value[0]["context_count"] == 1
 
     def test_apply_template_with_repo(self, tmp_path: Path):
         storage = Storage(tmp_path)
         result = apply_template(storage, "python-docs", repo_url="https://github.com/test/repo")
-        # Will fail to clone but should return error
-        assert "error" in result or result.get("status") == "applied"
+        # Clone will fail for fake URL, verify graceful error handling
+        assert isinstance(result, dict)
+        if result.get("status") == "applied":
+            assert "repo" in result.get("applied", [])
+        else:
+            assert "error" in result
 
 
 class TestConflictEdgeCases:
@@ -130,6 +137,8 @@ class TestConflictEdgeCases:
         # Get details
         details = detector.get_conflict_details("doc1.md")
         assert len(details["judgments"]) == 1
+        assert details["judgments"][0]["new_id"] == "doc1.md"
+        assert details["judgments"][0]["candidate_id"] == "doc2.md"
 
     def test_suggest_high_similarity(self, tmp_path: Path):
         from conflicts import ConflictDetector
@@ -143,5 +152,7 @@ class TestConflictEdgeCases:
         )
         detector = ConflictDetector(storage)
         suggestion = detector.suggest_resolution("doc1.md")
-        # May be no_action if score is below threshold
+        assert "suggestion" in suggestion
         assert suggestion["suggestion"] in ("supersedes", "conflicts_with", "unrelated", "no_action")
+        # Identical content should not be marked unrelated
+        assert suggestion["suggestion"] != "unrelated", f"Identical content should not be unrelated: {suggestion}"

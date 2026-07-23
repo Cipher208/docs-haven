@@ -264,6 +264,9 @@ class TestStorageSearch:
         assert auto_strategy("a b c") == "hybrid"
 
 
+# ── CRUD ────────────────────────────────────────────────────────────────────
+
+
 class TestUpdateDelete:
     def test_update_document_with_title(self, tmp_storage):
         conn = tmp_storage._get_conn()
@@ -310,95 +313,6 @@ class TestUpdateDelete:
 
         doc = tmp_storage.get("doc.md")
         assert doc.is_err
-
-    def test_check_stale_content_changed(self, tmp_storage):
-        import hashlib
-
-        repo_dir = tmp_storage.repos_dir / "test"
-        repo_dir.mkdir()
-        (repo_dir / "doc.md").write_text("original content")
-
-        original_hash = hashlib.sha256(b"original content").hexdigest()
-        conn = tmp_storage._get_conn()
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, content_hash, title) VALUES (?, ?, ?, ?, ?)",
-            ("test", "doc.md", "original content", original_hash, "Doc"),
-        )
-        conn.commit()
-
-        # Modify the file
-        (repo_dir / "doc.md").write_text("modified content")
-
-        result = tmp_storage.check_stale("test")
-        assert result.is_ok
-        stale = result.value
-        assert len(stale) == 1
-        assert stale[0]["reason"] == "content_changed"
-
-    def test_check_stale_nonexistent_collection(self, tmp_storage):
-        result = tmp_storage.check_stale("nonexistent")
-        assert result.is_ok
-        assert result.value == []
-
-    def test_stats_with_data(self, tmp_storage):
-        conn = tmp_storage._get_conn()
-        conn.execute(
-            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
-            ("test", "doc.md", "content", "Title"),
-        )
-        conn.commit()
-
-        result = tmp_storage.stats()
-        assert result.is_ok
-        stats = result.value
-        assert stats["total_documents"] == 1
-        assert stats["total_chunks"] == 1
-        assert stats["collections"] == 1
-        assert stats["db_size_kb"] > 0
-
-    def test_add_repo_invalid_url(self, tmp_storage):
-        result = tmp_storage.add_repo("ftp://invalid.com/repo")
-        assert result.is_err
-        assert "Invalid URL scheme" in result.error
-
-    def test_add_repo_path_traversal_mask(self, tmp_storage):
-        # Create a fake repo dir so clone is skipped
-        repo_dir = tmp_storage.repos_dir / "repo"
-        repo_dir.mkdir()
-
-        result = tmp_storage.add_repo("https://github.com/test/repo", mask="../../etc/passwd")
-        assert result.is_err
-        assert "path traversal" in result.error.lower()
-
-    def test_add_repo_with_mocked_clone(self, tmp_storage):
-        from unittest.mock import MagicMock, patch
-
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stderr = ""
-
-        with patch("storage.subprocess.run", return_value=mock_result):
-            # Create repo dir after "clone"
-            repo_dir = tmp_storage.repos_dir / "test-repo"
-            repo_dir.mkdir(exist_ok=True)
-            (repo_dir / "README.md").write_text("# Test\nContent here")
-
-            result = tmp_storage.add_repo("https://github.com/test/test-repo", description="Test repo")
-            assert result.is_ok
-            assert result.value["name"] == "test-repo"
-            assert result.value["files_indexed"] == 1
-
-    def test_add_repo_clone_failure(self, tmp_storage):
-        from unittest.mock import MagicMock, patch
-
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stderr = "fatal: repository not found"
-
-        with patch("storage.subprocess.run", return_value=mock_result):
-            result = tmp_storage.add_repo("https://github.com/nonexistent/repo")
-            assert result.is_err
-            assert "Clone failed" in result.error
 
     def test_get_with_chunk(self, tmp_storage):
         conn = tmp_storage._get_conn()
@@ -492,28 +406,29 @@ class TestUpdateDelete:
         assert result.is_ok
         assert result.value == 0
 
-    def test_stats_with_data_v2(self, tmp_storage):
-        conn = tmp_storage._get_conn()
-        conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "content", "Title"))
-        conn.commit()
-        result = tmp_storage.stats()
+    def test_get_nonexistent(self, tmp_storage):
+        result = tmp_storage.get("nonexistent.md")
+        assert result.is_err
+
+    def test_list_documents_empty(self, tmp_storage):
+        result = tmp_storage.list_documents()
         assert result.is_ok
-        assert result.value["total_documents"] == 1
+        assert result.value == []
 
-    def test_config_save_load(self, tmp_storage):
-        config = tmp_storage._load_config()
-        config["repos"]["test"] = {"url": "https://example.com/repo"}
-        tmp_storage._save_config(config)
-        loaded = tmp_storage._load_config()
-        assert loaded["repos"]["test"]["url"] == "https://example.com/repo"
+    def test_close(self, tmp_storage):
+        tmp_storage.close()
+        assert getattr(tmp_storage._local, "conn", None) is None
 
-    def test_config_broken_json(self, tmp_path: Path):
-        tmp_path / "config.json"
-        (tmp_path / "config.json").write_text("not json {{{")
-        storage = Storage(tmp_path)
-        config = storage._load_config()
-        assert "repos" in config
+    def test_get_conn_reconnect(self, tmp_storage):
+        tmp_storage.close()
+        conn = tmp_storage._get_conn()
+        assert conn is not None
 
+
+# ── Search Strategies ───────────────────────────────────────────────────────
+
+
+class TestSearchStrategies:
     def test_search_with_min_score(self, tmp_storage):
         # Insert docs with varying relevance to FastAPI
         insert_doc(tmp_storage, "test", "fastapi.md", "FastAPI is a Python web framework for building APIs", "FastAPI")
@@ -550,6 +465,100 @@ class TestUpdateDelete:
         assert result.is_ok
         assert isinstance(result.value, list)
 
+
+# ── Config Persistence ──────────────────────────────────────────────────────
+
+
+class TestConfigPersistence:
+    def test_config_save_load(self, tmp_storage):
+        config = tmp_storage._load_config()
+        config["repos"]["test"] = {"url": "https://example.com/repo"}
+        tmp_storage._save_config(config)
+        loaded = tmp_storage._load_config()
+        assert loaded["repos"]["test"]["url"] == "https://example.com/repo"
+
+    def test_config_broken_json(self, tmp_path: Path):
+        tmp_path / "config.json"
+        (tmp_path / "config.json").write_text("not json {{{")
+        storage = Storage(tmp_path)
+        config = storage._load_config()
+        assert "repos" in config
+
+
+# ── Context Validation ──────────────────────────────────────────────────────
+
+
+class TestContext:
+    def test_context_empty_path(self, tmp_storage):
+        result = tmp_storage.add_context("test", "", "summary")
+        assert result.is_err
+
+    def test_context_empty_summary(self, tmp_storage):
+        result = tmp_storage.add_context("test", "path", "")
+        assert result.is_err
+
+
+# ── Rename Validation ───────────────────────────────────────────────────────
+
+
+class TestRename:
+    def test_rename_invalid_names(self, tmp_storage):
+        result = tmp_storage.rename_collection("../../../etc", "new")
+        assert result.is_err
+        assert result.error
+        result = tmp_storage.rename_collection("old", "../../../etc")
+        assert result.is_err
+        assert result.error
+
+
+# ── Repo Operations ─────────────────────────────────────────────────────────
+
+
+class TestRepoOperations:
+    def test_add_repo_invalid_url(self, tmp_storage):
+        result = tmp_storage.add_repo("ftp://invalid.com/repo")
+        assert result.is_err
+        assert "Invalid URL scheme" in result.error
+
+    def test_add_repo_path_traversal_mask(self, tmp_storage):
+        # Create a fake repo dir so clone is skipped
+        repo_dir = tmp_storage.repos_dir / "repo"
+        repo_dir.mkdir()
+
+        result = tmp_storage.add_repo("https://github.com/test/repo", mask="../../etc/passwd")
+        assert result.is_err
+        assert "path traversal" in result.error.lower()
+
+    def test_add_repo_with_mocked_clone(self, tmp_storage):
+        from unittest.mock import MagicMock, patch
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stderr = ""
+
+        with patch("storage.subprocess.run", return_value=mock_result):
+            # Create repo dir after "clone"
+            repo_dir = tmp_storage.repos_dir / "test-repo"
+            repo_dir.mkdir(exist_ok=True)
+            (repo_dir / "README.md").write_text("# Test\nContent here")
+
+            result = tmp_storage.add_repo("https://github.com/test/test-repo", description="Test repo")
+            assert result.is_ok
+            assert result.value["name"] == "test-repo"
+            assert result.value["files_indexed"] == 1
+
+    def test_add_repo_clone_failure(self, tmp_storage):
+        from unittest.mock import MagicMock, patch
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "fatal: repository not found"
+
+        with patch("storage.subprocess.run", return_value=mock_result):
+            result = tmp_storage.add_repo("https://github.com/nonexistent/repo")
+            assert result.is_err
+            assert "Clone failed" in result.error
+
     def test_add_repo_invalid_url_v2(self, tmp_storage):
         result = tmp_storage.add_repo("ftp://invalid.com/repo")
         assert result.is_err
@@ -564,26 +573,79 @@ class TestUpdateDelete:
         assert result.is_err
         assert result.error
 
-    def test_get_nonexistent(self, tmp_storage):
-        result = tmp_storage.get("nonexistent.md")
-        assert result.is_err
 
-    def test_context_empty_path(self, tmp_storage):
-        result = tmp_storage.add_context("test", "", "summary")
-        assert result.is_err
+# ── Stale Detection ─────────────────────────────────────────────────────────
 
-    def test_context_empty_summary(self, tmp_storage):
-        result = tmp_storage.add_context("test", "path", "")
-        assert result.is_err
 
-    def test_rename_invalid_names(self, tmp_storage):
-        result = tmp_storage.rename_collection("../../../etc", "new")
-        assert result.is_err
-        assert result.error
-        result = tmp_storage.rename_collection("old", "../../../etc")
-        assert result.is_err
-        assert result.error
+class TestStaleDetection:
+    def test_check_stale_content_changed(self, tmp_storage):
+        import hashlib
 
+        repo_dir = tmp_storage.repos_dir / "test"
+        repo_dir.mkdir()
+        (repo_dir / "doc.md").write_text("original content")
+
+        original_hash = hashlib.sha256(b"original content").hexdigest()
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, content_hash, title) VALUES (?, ?, ?, ?, ?)",
+            ("test", "doc.md", "original content", original_hash, "Doc"),
+        )
+        conn.commit()
+
+        # Modify the file
+        (repo_dir / "doc.md").write_text("modified content")
+
+        result = tmp_storage.check_stale("test")
+        assert result.is_ok
+        stale = result.value
+        assert len(stale) == 1
+        assert stale[0]["reason"] == "content_changed"
+
+    def test_check_stale_nonexistent_collection(self, tmp_storage):
+        result = tmp_storage.check_stale("nonexistent")
+        assert result.is_ok
+        assert result.value == []
+
+
+# ── Stats ───────────────────────────────────────────────────────────────────
+
+
+class TestStats:
+    def test_stats_with_data(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute(
+            "INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)",
+            ("test", "doc.md", "content", "Title"),
+        )
+        conn.commit()
+
+        result = tmp_storage.stats()
+        assert result.is_ok
+        stats = result.value
+        assert stats["total_documents"] == 1
+        assert stats["total_chunks"] == 1
+        assert stats["collections"] == 1
+        assert stats["db_size_kb"] > 0
+
+    def test_stats_with_data_v2(self, tmp_storage):
+        conn = tmp_storage._get_conn()
+        conn.execute("INSERT INTO documents (collection, file_path, content, title) VALUES (?, ?, ?, ?)", ("test", "doc.md", "content", "Title"))
+        conn.commit()
+        result = tmp_storage.stats()
+        assert result.is_ok
+        assert result.value["total_documents"] == 1
+
+    def test_stats_empty_chunks(self, tmp_storage):
+        result = tmp_storage.stats()
+        assert result.is_ok
+        assert result.value["total_chunks"] == 0
+
+
+# ── Reindex ─────────────────────────────────────────────────────────────────
+
+
+class TestReindex:
     def test_find_changed_docs_collection(self, tmp_storage):
         repo_dir = tmp_storage.repos_dir / "test"
         repo_dir.mkdir()
@@ -599,25 +661,6 @@ class TestUpdateDelete:
         result = tmp_storage.reindex_collection("nonexistent")
         assert result.is_err
         assert "not found" in result.error.lower()
-
-    def test_list_documents_empty(self, tmp_storage):
-        result = tmp_storage.list_documents()
-        assert result.is_ok
-        assert result.value == []
-
-    def test_stats_empty_chunks(self, tmp_storage):
-        result = tmp_storage.stats()
-        assert result.is_ok
-        assert result.value["total_chunks"] == 0
-
-    def test_close(self, tmp_storage):
-        tmp_storage.close()
-        assert getattr(tmp_storage._local, "conn", None) is None
-
-    def test_get_conn_reconnect(self, tmp_storage):
-        tmp_storage.close()
-        conn = tmp_storage._get_conn()
-        assert conn is not None
 
 
 # ── Importance Scoring ────────────────────────────────────────────────────
