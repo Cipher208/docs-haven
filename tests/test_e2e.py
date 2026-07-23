@@ -153,7 +153,8 @@ class TestE2EConflictDetection:
     def test_judge_persists(self, e2e_storage):
         detector = ConflictDetector(e2e_storage)
         result = detector.judge("doc1", "doc2", "supersedes")
-        assert result.get("status") == "recorded"
+        assert result.is_ok
+        assert result.value["status"] == "recorded"
 
 
 class TestE2ESync:

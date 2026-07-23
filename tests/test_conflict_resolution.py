@@ -45,8 +45,8 @@ class TestConflictResolution:
         storage = Storage(tmp_path)
         detector = ConflictDetector(storage)
         result = detector.judge("", "candidate", "supersedes")
-        assert "error" in result
+        assert result.is_err
         result = detector.judge("new", "", "supersedes")
-        assert "error" in result
+        assert result.is_err
         result = detector.judge("new", "candidate", "invalid")
-        assert "error" in result
+        assert result.is_err

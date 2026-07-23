@@ -69,10 +69,11 @@ class TestConflictDetector:
     def test_judge_valid(self):
         detector = ConflictDetector()
         result = detector.judge("doc1", "doc2", "supersedes")
-        assert result["status"] == "recorded"
-        assert result["judgment"] == "supersedes"
+        assert result.is_ok
+        assert result.value["status"] == "recorded"
+        assert result.value["judgment"] == "supersedes"
 
     def test_judge_invalid(self):
         detector = ConflictDetector()
         result = detector.judge("doc1", "doc2", "invalid_judgment")
-        assert "error" in result
+        assert result.is_err

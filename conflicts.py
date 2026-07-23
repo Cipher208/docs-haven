@@ -12,6 +12,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+from result import Err, Ok
 
 if TYPE_CHECKING:
     from storage import Storage
@@ -113,7 +114,7 @@ class ConflictDetector:
 
         return candidates[: self.MAX_CANDIDATES]
 
-    def judge(self, new_id: str, candidate_id: str, judgment: str) -> dict:
+    def judge(self, new_id: str, candidate_id: str, judgment: str) -> Ok[dict] | Err:
         """Record a human judgment on a conflict.
 
         Args:
@@ -122,22 +123,18 @@ class ConflictDetector:
             judgment: One of 'supersedes', 'conflicts_with', 'unrelated'
 
         Returns:
-            {status: 'recorded', judgment: str}
+            Ok({status: 'recorded', ...}) or Err
         """
-        # Validate inputs
         if not new_id or not new_id.strip():
-            return {"error": "new_id cannot be empty"}
+            return Err(error="new_id cannot be empty")
         if not candidate_id or not candidate_id.strip():
-            return {"error": "candidate_id cannot be empty"}
+            return Err(error="candidate_id cannot be empty")
         valid_judgments = {"supersedes", "conflicts_with", "unrelated"}
         if judgment not in valid_judgments:
-            return {"error": f"Invalid judgment. Must be one of: {sorted(valid_judgments)}"}
+            return Err(error=f"Invalid judgment. Must be one of: {sorted(valid_judgments)}")
 
         storage = self._get_storage()
-        result = storage.record_judgment(new_id, candidate_id, judgment)
-        if result.is_err:  # type: ignore[union-attr]
-            return {"error": result.error}  # type: ignore[union-attr]
-        return result.value  # type: ignore[union-attr]
+        return storage.record_judgment(new_id, candidate_id, judgment)
 
     def get_conflict_details(self, new_id: str) -> dict:
         """Get details about a conflict for resolution."""
@@ -151,15 +148,8 @@ class ConflictDetector:
         content = new_doc.value.get("content", "")  # type: ignore[union-attr]
         candidates = self.detect(title, content)
 
-        conn = storage._get_conn()
-        try:
-            rows = conn.execute(
-                "SELECT * FROM conflict_judgments WHERE new_id = ?",
-                (new_id,),
-            ).fetchall()
-            judgments = [dict(r) for r in rows]
-        except Exception:
-            judgments = []
+        judgments_result = storage.get_judgments(new_id)
+        judgments = judgments_result.value if judgments_result.is_ok else []
 
         return {
             "new_id": new_id,
