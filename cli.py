@@ -84,7 +84,9 @@ def cmd_list(args: argparse.Namespace) -> None:
         print(f"Error: {result.error}")  # type: ignore[union-attr]
         sys.exit(1)
     for c in result.value:  # type: ignore[union-attr]
-        print(f"  {c['name']}: {c['count']} docs, {c['chunks']} chunks")
+        ctx_count = c.get('context_count', 0)
+        ctx_str = f", {ctx_count} contexts" if ctx_count > 0 else ""
+        print(f"  {c['name']}: {c['count']} docs, {c['chunks']} chunks{ctx_str}")
 
 
 def cmd_collection(args: argparse.Namespace) -> None:
@@ -111,8 +113,11 @@ def cmd_collection(args: argparse.Namespace) -> None:
                 print(f"Collection: {c['name']}")
                 print(f"  Documents: {c['count']}")
                 print(f"  Chunks: {c['chunks']}")
+                ctx_count = c.get("context_count", 0)
+                if ctx_count > 0:
+                    print(f"  Contexts: {ctx_count} attachments")
                 if c.get("contexts"):
-                    print(f"  Contexts: {', '.join(c['contexts'][:5])}")
+                    print(f"  Context paths: {', '.join(c['contexts'][:5])}")
                 if c.get("domain"):
                     print(f"  Domain: {c['domain']}")
                 return

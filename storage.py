@@ -787,6 +787,14 @@ class Storage:
                    GROUP_CONCAT(context, '|') as contexts
                    FROM documents GROUP BY collection"""
             ).fetchall()
+
+            # Get context counts from context_attachments
+            ctx_rows = conn.execute(
+                """SELECT collection, COUNT(*) as ctx_count
+                   FROM context_attachments GROUP BY collection"""
+            ).fetchall()
+            ctx_counts = {r["collection"]: r["ctx_count"] for r in ctx_rows}
+
             return Ok(
                 value=[
                     {
@@ -794,6 +802,7 @@ class Storage:
                         "count": r["docs"],
                         "chunks": r["chunks"],
                         "contexts": r["contexts"].split("|") if r["contexts"] else [],
+                        "context_count": ctx_counts.get(r["collection"], 0),
                         "domain": r["collection"].split("__")[0]
                         if "__" in r["collection"] and r["collection"].split("__")[0] in _VALID_DOMAINS
                         else None,

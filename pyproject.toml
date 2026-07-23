@@ -37,6 +37,7 @@ Changelog = "https://github.com/Cipher208/docs-haven/blob/main/CHANGELOG.md"
 
 [project.scripts]
 docs-haven = "cli:main"
+docs-haven-serve = "server:main"
 
 [project.optional-dependencies]
 test = [
