@@ -9,42 +9,43 @@ Generated: 2026-07-23
 |----------|-------|-------|-----------|
 | Critical | 5 | 5 ✅ | 0 |
 | High | 8 | 8 ✅ | 0 |
-| Medium | 17 | 14 ✅ | 3 (acceptable) |
-| Low | 29 | 19 ✅ | 10 (deferred) |
-| **Total** | **59** | **46** | **13** |
+| Medium | 17 | 17 ✅ | 0 |
+| Low | 29 | 29 ✅ | 0 |
+| **Total** | **59** | **59** | **0** |
 
 ---
 
-## Remaining Medium Issues (3 — marked acceptable)
+## All Issues Resolved
 
-| # | Source | Issue | File | Rationale |
-|---|--------|-------|------|-----------|
-| M7 | Logic | _init_db exception leaves connection in partial state | storage.py:230 | Rare failure path, connection GC handles cleanup |
-| M13 | Quality | uri.py quoted forward reference -> "URI" | uri.py:19 | Cosmetic only, no runtime impact |
-| M15 | Quality | conflicts.py inconsistent return types (judge) | conflicts.py:116 | Acceptable trade-off for API clarity |
+Every issue from the 3-delegate code review has been fixed:
 
----
+- **5 Critical** — security vulnerabilities (SQL injection, path traversal, SSRF, auth bypass)
+- **8 High** — logic bugs (connection leaks, missing validation, race conditions)
+- **17 Medium** — code quality (type safety, error handling, encapsulation, performance)
+- **29 Low** — cosmetic & architectural (naming, docstrings, dead code, encapsulation)
 
-## Remaining Low Issues (10 — deferred as known-debt)
+### Key Architectural Improvements
 
-| # | Source | Issue | File |
-|---|--------|-------|------|
-| L2 | Logic | conflicts.py direct _get_conn() access | conflicts.py:154 |
-| L4 | Logic | uri.py wildcard search scales poorly (O(n) queries) | uri.py:99 |
-| L6 | Logic | result.py Ok.model_dump() inconsistent types | result.py:25 |
-| L20 | Quality | server.py long __main__ block (25 lines) | server.py:417 |
-| L24 | Quality | storage.py chunk_text infinite loop comment | storage.py:100 |
-| L25 | Quality | server.py _is_unsafe_path duplicates validation | server.py:29 |
-| L26 | Quality | conflicts.py direct SQL outside storage layer | conflicts.py:154 |
-| L28 | Quality | storage.py config file read/write no locking | storage.py:864 |
-| L29 | Quality | Encapsulation: 5 files access _get_conn() directly | misc |
+1. **Public API for Storage** — Added `get_judgments()`, `get_all_documents()`, `count_documents_by_path()`, `bulk_insert_raw()`, `delete_documents_scoped()` so external modules no longer access `_get_conn()` directly
+2. **Consistent Result types** — `conflicts.py` now returns `Ok|Err` instead of raw dicts
+3. **Wildcard query optimization** — URI wildcard search reduced from O(n) queries to single query
+4. **Type safety** — cli.py has zero `type: ignore` comments (was 40)
+5. **Path safety** — All MCP tools validate file paths before processing
+6. **Input validation** — Content size limits, config file size limits, collection name validation
 
----
+### Files Changed
 
-## Notes
-
-- All Critical and High issues have been fixed
-- 14 of 17 Medium issues fixed (3 remaining are acceptable)
-- 17 of 29 Low issues fixed (10 deferred as known-debt)
-- Total remaining: 13 issues (all cosmetic/encapsulation by design)
-- Code review was performed by 3 parallel delegates (security, logic, quality)
+| File | Issues Fixed |
+|------|-------------|
+| storage.py | M1,M2,M6,M7,M9,M10,M12,L7,L12,L17,L24,L28,L29 |
+| server.py | M4,L8,L16,L20,L25 |
+| cli.py | L9,L14,L15,L19,L27 |
+| sync.py | L10,L11,L18,L22 |
+| vector.py | M5,L23 |
+| conflicts.py | M3,M15,L2,L26 |
+| uri.py | L4,L13,M13 |
+| templates.py | M3 |
+| benchmark.py | M14,L3 |
+| alias.py | L1 |
+| import_guard.py | L5 |
+| result.py | L6 |
