@@ -363,6 +363,3 @@ class TestStats:
         result = tmp_storage.stats()
         assert result.is_ok
         assert result.value["total_chunks"] == 0
-
-
-

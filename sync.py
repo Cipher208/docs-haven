@@ -78,12 +78,15 @@ class Syncer:
 
     def _build_export_data(self, collections_data: dict) -> dict:
         """Build chunk data structure from collections."""
-        chunk = {"collections": {}, "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        collections: dict[str, list] = {}
         total_docs = 0
         for name, docs in collections_data.items():
-            chunk["collections"][name] = docs
+            collections[name] = docs
             total_docs += len(docs)
-        return chunk
+        return {
+            "collections": collections,
+            "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
 
     def _write_chunk(self, chunk: dict, created_by: str) -> str | None:
         """Serialize, compress, and write chunk. Returns chunk_id or None if duplicate."""

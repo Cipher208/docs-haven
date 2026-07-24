@@ -26,7 +26,34 @@
       "fixed_version": null,
       "affected_range": "unknown",
       "references": []
+    },
+    {
+      "vuln_id": "PYSEC-2026-3481",
+      "aliases": [],
+      "summary": "Known vulnerability (PYSEC-2026-3481)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
+    },
+    {
+      "vuln_id": "PYSEC-2026-3482",
+      "aliases": [],
+      "summary": "Known vulnerability (PYSEC-2026-3482)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
+    },
+    {
+      "vuln_id": "PYSEC-2026-3483",
+      "aliases": [],
+      "summary": "Known vulnerability (PYSEC-2026-3483)",
+      "cvss_score": null,
+      "fixed_version": null,
+      "affected_range": "unknown",
+      "references": []
     }
   ],
-  "_ts": 1784809220.7220464
+  "_ts": 1784830254.7601244
 }
