@@ -27,7 +27,7 @@ classifiers = [
 dependencies = [
     # NOTE: 3 mcp vulnerabilities with "Inconclusive" reachability.
     # Latest stable (1.28.1) does not yet fix them. Upgrade when patches land.
-    "mcp[cli]>=1.27,<2",
+    "mcp[cli]>=1.27,<3",
 ]
 
 [project.urls]
