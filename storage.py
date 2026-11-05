@@ -216,6 +216,14 @@ class Storage:
             )
         """)
 
+    def _create_imported_chunks_table(self, conn: sqlite3.Connection) -> None:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS imported_chunks (
+                chunk_id TEXT PRIMARY KEY,
+                imported_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
     def _init_db(self) -> None:
         conn = self._conn
         assert conn is not None, "_init_db called before connection established"
@@ -228,6 +236,7 @@ class Storage:
             conn.execute("ALTER TABLE documents ADD COLUMN retrieval_count INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass
+        self._create_imported_chunks_table(conn)
         conn.commit()
 
     @staticmethod
@@ -477,6 +486,7 @@ class Storage:
         rank = row["rank"] if "rank" in row.keys() else None
         return {
             "path": f"{row['collection']}/{row['file_path']}",
+            "file_path": row["file_path"],
             "content": row["content"][:500],
             "highlighted": highlighted if highlighted else row["content"][:200],
             "collection": row["collection"],
@@ -511,7 +521,7 @@ class Storage:
         base = """
             SELECT d.file_path, d.content, d.collection, d.title,
                    d.chunk_index, d.total_chunks, rank,
-                   snippet(documents_fts, 2, '<b>', '</b>', '...', 20) as highlighted
+                   snippet(documents_fts, 1, '<b>', '</b>', '...', 20) as highlighted
             FROM documents_fts fts
             JOIN documents d ON fts.rowid = d.id
             WHERE documents_fts MATCH ?
@@ -880,6 +890,29 @@ class Storage:
         except sqlite3.Error as e:
             logger.debug("List documents failed: %s", e)
             return Err(error=str(e))
+
+    def chunk_imported(self, chunk_id: str) -> bool:
+        """Return True if chunk_id was already imported into this storage."""
+        conn = self._get_conn()
+        try:
+            return conn.execute(
+                "SELECT 1 FROM imported_chunks WHERE chunk_id = ?",
+                (chunk_id,),
+            ).fetchone() is not None
+        except sqlite3.Error:
+            return False
+
+    def mark_chunk_imported(self, chunk_id: str) -> None:
+        """Record that chunk_id was imported into this storage."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO imported_chunks (chunk_id) VALUES (?)",
+                (chunk_id,),
+            )
+            conn.commit()
+        except sqlite3.Error as e:
+            logger.debug("Failed to mark chunk imported: %s", e)
 
     def stats(self) -> Ok[dict] | Err:
         conn = self._get_conn()

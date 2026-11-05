@@ -132,12 +132,17 @@ class Syncer:
         return {"chunk_id": chunk_id, "collections": len(collections_data), "documents": total_docs, "isEmpty": False}
 
     def _import_chunk_data(self, chunk_data: dict, storage) -> tuple[int, int]:
-        """Import a single chunk's data into storage. Returns (collections, docs) counts."""
+        """Import a single chunk's data into storage. Returns (collections, docs) counts.
+
+        Chunk records use the ``file_path`` key (matching kb_sync_export output);
+        the older ``path`` key is accepted as a backward-compat alias.
+        Rows with an empty ``file_path`` are skipped rather than inserted as junk.
+        """
         collections = chunk_data.get("collections", {})
         if storage is None:
             return len(collections), sum(len(d) for d in collections.values())
 
-        documents = []
+        documents: list[dict] = []
         skipped = 0
         for collection_name, docs in collections.items():
             if not _COLLECTION_PATTERN.match(collection_name):
@@ -145,18 +150,24 @@ class Syncer:
                 skipped += 1
                 continue
             for doc in docs:
-                if isinstance(doc, dict):
-                    documents.append(
-                        {
-                            "collection": collection_name,
-                            "path": doc.get("path", ""),
-                            "content": doc.get("content", ""),
-                            "title": doc.get("title", ""),
-                        }
-                    )
+                if not isinstance(doc, dict):
+                    continue
+                path = doc.get("file_path") or doc.get("path") or ""
+                if not path:
+                    logger.debug("Skipping chunk row with empty file_path in collection %s", collection_name)
+                    skipped += 1
+                    continue
+                documents.append(
+                    {
+                        "collection": collection_name,
+                        "path": path,
+                        "content": doc.get("content", "") or "",
+                        "title": doc.get("title", "") or "",
+                    }
+                )
         if documents:
             storage.bulk_insert(documents)
-        return len(collections) - skipped, sum(len(d) for d in collections.values())
+        return len(collections) - skipped, len(documents)
 
     def import_chunks(self, storage: "Storage | None" = None) -> dict:
         """Import all chunks not yet applied.
@@ -179,6 +190,12 @@ class Syncer:
         }
 
         _HEX16 = re.compile(r"^[0-9a-f]{16}$")
+        # imported_chunks table, when available (see Storage.chunk_imported), tracks
+        # already-imported chunk ids across import_chunks calls for the same storage.
+        # This replaces the previous heuristic that scanned file_path for the chunk id,
+        # which was both weak as dedup and risky: a document path that happens to
+        # contain the same 16-hex substring could cause an unrelated needed chunk to
+        # be skipped.
 
         for entry in manifest.chunks:
             if not _HEX16.match(entry.id):
@@ -195,10 +212,8 @@ class Syncer:
                 result["chunks_skipped"] += 1
                 continue
 
-            # Check if this chunk was already imported (by checking content hash)
             if storage is not None:
-                existing = storage.count_documents_by_path(f"%{entry.id}%")
-                if existing > 0:
+                if storage.chunk_imported(entry.id):
                     result["chunks_skipped"] += 1
                     continue
 
@@ -220,6 +235,8 @@ class Syncer:
                 continue
 
             n_collections, n_docs = self._import_chunk_data(chunk_data, storage)
+            if storage is not None:
+                storage.mark_chunk_imported(entry.id)
             result["chunks_imported"] += 1
             result["collections_imported"] += n_collections
             result["documents_imported"] += n_docs
