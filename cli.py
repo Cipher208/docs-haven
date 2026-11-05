@@ -176,15 +176,51 @@ def cmd_collection(args: argparse.Namespace) -> None:
 
 
 def cmd_delete(args: argparse.Namespace) -> None:
-    """Delete a document."""
+    """Delete a document.
+
+    Accepts a prefixed path ``collection/file_path`` (scoped delete) or a plain
+    ``file_path`` (legacy behavior: deletes matching file_paths across all
+    collections — ambiguous, use scoped form when possible).
+    """
     storage = get_storage()
     file_path = args.file_path
     if _is_unsafe_path(file_path):
         print(f"{_ERR_PREFIX} {_ERR_INVALID_PATH}")
         sys.exit(1)
-    result = _unwrap_or_exit(storage.delete_document(file_path), "delete")
-    print(f"Deleted: {result['file_path']}")
 
+    if "/" in file_path:
+        collection, path = file_path.split("/", 1)
+        result = _unwrap_or_exit(
+            storage.delete_documents_scoped(path, collection), "delete"
+        )
+        print(f"Deleted: {collection}/{result['file_path']}")
+    else:
+        result = _unwrap_or_exit(storage.delete_document(file_path), "delete")
+        print(f"Deleted: {result['file_path']}")
+
+
+def cmd_get(args: argparse.Namespace) -> None:
+    """Get a document by path.
+
+    Accepts a prefixed path ``collection/file_path`` or a plain ``file_path``
+    (the latter is resolved against the first matching collection when
+    unambiguous, otherwise errors).
+    """
+    storage = get_storage()
+    file_path = args.file_path
+    if _is_unsafe_path(file_path):
+        print(f"{_ERR_PREFIX} {_ERR_INVALID_PATH}")
+        sys.exit(1)
+
+    if "/" in file_path:
+        collection, path = file_path.split("/", 1)
+        result = _unwrap_or_exit(
+            storage.get(path, collection=collection), "get"
+        )
+    else:
+        result = _unwrap_or_exit(storage.get(file_path), "get")
+
+    print(f"Content:\n{result['content']}")
 
 def cmd_context(args: argparse.Namespace) -> None:
     """Context attachment management."""
@@ -444,8 +480,14 @@ def _add_export_import_parsers(subparsers: argparse._SubParsersAction) -> None:
 
 def _add_delete_parser(subparsers: argparse._SubParsersAction) -> None:
     sp = subparsers.add_parser("delete", help="Delete a document")
-    sp.add_argument("file_path", help="Document path to delete")
+    sp.add_argument("file_path", help="Document path to delete (collection/file_path or plain file_path)")
     sp.set_defaults(func=cmd_delete)
+
+
+def _add_get_parser(subparsers: argparse._SubParsersAction) -> None:
+    sp = subparsers.add_parser("get", help="Get a document by path")
+    sp.add_argument("file_path", help="Document path (collection/file_path or plain file_path)")
+    sp.set_defaults(func=cmd_get)
 
 
 def _add_serve_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -491,6 +533,7 @@ def main() -> None:
     _add_context_parser(subparsers)
     _add_export_import_parsers(subparsers)
     _add_delete_parser(subparsers)
+    _add_get_parser(subparsers)
     _add_serve_parser(subparsers)
     _add_conflicts_parser(subparsers)
 
