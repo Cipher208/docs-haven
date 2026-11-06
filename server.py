@@ -123,12 +123,19 @@ async def kb_get(file_path: str) -> dict:
     """Get full content of a document.
 
     Args:
-        file_path: Document path (e.g., 'repo/README.md')
+        file_path: Document path, either 'file_path' or 'collection/file_path' (e.g., 'repo/README.md' or 'core/repo/README.md').
     """
     # Path traversal protection
     if _is_unsafe_path(file_path):
         return {"error": _ERR_INVALID_PATH}
-    result = _get_storage().get(file_path)
+
+    # Accept collection/file_path form (consistent with CLI get/delete).
+    parts = file_path.split("/", 1)
+    if len(parts) == 2 and parts[0]:
+        collection, path = parts
+        result = _get_storage().get(path, collection=collection)
+    else:
+        result = _get_storage().get(file_path)
     return _unwrap(result)
 
 
