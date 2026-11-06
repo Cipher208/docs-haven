@@ -388,15 +388,23 @@ class Storage:
 
     def _apply_boosts(self, results: list[dict], query: str, explain: bool) -> list[dict]:
         for r in results:
-            base_score = r.get(_FIELD_SCORE, 0)
+            # _FIELD_SCORE now holds a normalized bm25 (0..1) for FTS results (set in _search_fts5)
+            # or a fixed value for LIKE/vector results. Keep the raw normalized value before boosts
+            # so explain can report the base signal separately from the final clamped score.
+            base_score = r.get(_FIELD_SCORE, 0.0)
             boost = type_boost(query, r)
             imp_boost = importance_boost(r)
             total_boost = boost + imp_boost
+            raw_score = base_score + total_boost
+            # Public score is clamped to 0..1 for callers; explain reports the unclamped raw score
+            # so component scores still sum to final_score in explain output.
+            r["_raw_score"] = raw_score
             if total_boost > 0:
-                r[_FIELD_SCORE] = min(1.0, base_score + total_boost)
                 r["boost"] = total_boost
+            public_score = min(1.0, raw_score)
+            r[_FIELD_SCORE] = public_score
             if explain:
-                r["explain"] = _build_explain(base_score, boost, imp_boost, r.get(_FIELD_SCORE, 0), r.get("source", _UNKNOWN))
+                r["explain"] = _build_explain(base_score, boost, imp_boost, raw_score, r.get("source", _UNKNOWN))
         return results
 
     def _run_hybrid_search(self, query: str, collections: list[str] | None, limit: int, min_score: float) -> list[dict]:
@@ -473,7 +481,9 @@ class Storage:
         results = self._search_strategy(query, collections, limit, strategy, min_score)
 
         results = self._apply_boosts(results, query, explain)
-        results.sort(key=lambda x: -x.get(_FIELD_SCORE, 0))
+        # Rank by the raw (unclamped) score so differences added by boosts are preserved,
+        # while the public score field stays clamped to 0..1 for callers.
+        results.sort(key=lambda x: -x.get("_raw_score", x.get(_FIELD_SCORE, 0.0)))
         if min_score > 0:
             results = [r for r in results if r.get(_FIELD_SCORE, 0) >= min_score]
 
@@ -482,7 +492,9 @@ class Storage:
         return Ok(value=results[:limit])
 
     def _row_to_result(self, row: sqlite3.Row, source: str, highlighted: str | None = None, score: float | None = None) -> dict:
-        # Handle rank column gracefully (may not exist in LIKE/get queries)
+        # Handle rank column gracefully (may not exist in LIKE/get queries).
+        # Keep raw -rank as a float (no rounding) so downstream normalization can recover
+        # meaningful differences; bm25 values are tiny (~1e-6) but still useful after min-max.
         rank = row["rank"] if "rank" in row.keys() else None
         return {
             "path": f"{row['collection']}/{row['file_path']}",
@@ -493,7 +505,7 @@ class Storage:
             "title": row["title"],
             "chunk": row["chunk_index"],
             "total_chunks": row["total_chunks"],
-            _FIELD_SCORE: score if score is not None else (round(-rank, 3) if rank is not None else 0),
+            _FIELD_SCORE: score if score is not None else (-rank if rank is not None else 0.0),
             "source": source,
             "created_at": row["created_at"] if "created_at" in row.keys() else None,
             "retrieval_count": row["retrieval_count"] if "retrieval_count" in row.keys() else 0,
@@ -521,6 +533,7 @@ class Storage:
         base = """
             SELECT d.file_path, d.content, d.collection, d.title,
                    d.chunk_index, d.total_chunks, rank,
+                   d.retrieval_count, d.created_at,
                    snippet(documents_fts, 1, '<b>', '</b>', '...', 20) as highlighted
             FROM documents_fts fts
             JOIN documents d ON fts.rowid = d.id
@@ -545,7 +558,26 @@ class Storage:
             sql_suffix, extra_params = self._build_fts_sql(collections)
             params = [fts_query] + extra_params + [limit]
             rows = conn.execute(sql_suffix, params).fetchall()
-            return [self._row_to_result(r, "fts5", r["highlighted"]) for r in rows]
+            results = [self._row_to_result(r, "fts5", r["highlighted"]) for r in rows]
+
+            # Normalize bm25 scores (currently stored in _FIELD_SCORE as -rank) to 0..1 by min-max
+            # across results so ranking reflects relative relevance and score > 0 for every hit.
+            # When all ranks are equal (single result or identical content) we set bm25 to 0.0 rather
+            # than 1.0 so that boosts (recency/frequency) are what lift the result above the threshold.
+            base_scores = [r.get(_FIELD_SCORE, 0.0) for r in results]
+            if base_scores:
+                min_base = min(base_scores)
+                max_base = max(base_scores)
+                range_base = max_base - min_base
+                if range_base > 0:
+                    for r in results:
+                        r[_FIELD_SCORE] = (r[_FIELD_SCORE] - min_base) / range_base
+                else:
+                    # Single result or all ranks equal — no bm25 signal to distinguish them.
+                    for r in results:
+                        r[_FIELD_SCORE] = 0.0
+
+            return results
         except sqlite3.Error as e:
             logger.debug("FTS5 search failed: %s", e)
             return []
@@ -554,7 +586,8 @@ class Storage:
         """Build LIKE search SQL with optional collection filter."""
         base = """
             SELECT file_path, content, collection, title,
-                   chunk_index, total_chunks
+                   chunk_index, total_chunks,
+                   retrieval_count, created_at
             FROM documents
             WHERE (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')
         """
