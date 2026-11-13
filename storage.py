@@ -17,6 +17,7 @@ import shutil
 import sqlite3
 import subprocess
 import threading
+from collections import deque
 from pathlib import Path
 
 from chunking import _BINARY_SUFFIXES, auto_chunk, chunk_code, chunk_text  # noqa: F401
@@ -40,6 +41,29 @@ _MMAP_SIZE = 256 * 1024 * 1024  # 256 MiB
 # Scoring constants
 _HYBRID_MULTIPLIER = 3
 
+# Context-aware search constants
+CONTEXT_BOOST = 0.1
+_RECENT_COLLECTIONS_MAX = 10
+
+# Query expansion constants
+_MAX_EXPANSION_TERMS = 24
+_STEM_SUFFIXES = ("ions", "ion", "ing", "ed", "es", "er", "or", "ly", "ment", "s")
+_STEM_FORMS = ("e", "s", "es", "ing", "ed", "er", "or", "ion")
+
+# Configurable expansion dictionary: single-word keys are synonyms, multi-word
+# keys are standard pattern mappings ("how to" -> tutorial/guide/example).
+# Instances copy this into Storage.expansion_dictionary; callers may extend or
+# override per call via the `expansion` argument of _expand_query.
+DEFAULT_EXPANSIONS: dict[str, list[str]] = {
+    "depends": ["dependency injection", "dependencies"],
+    "dependency injection": ["depends", "dependencies"],
+    "config": ["configuration", "setup"],
+    "auth": ["authentication", "authorization"],
+    "docs": ["documentation"],
+    "how to": ["tutorial", "guide", "example"],
+    "async generator": ["async_generator", "yield from"],
+}
+
 # Field name constants
 _FIELD_SCORE = "score"
 
@@ -57,11 +81,12 @@ _ERR_COLLECTION_NOT_FOUND = "Collection not found"
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _build_explain(base_score: float, boost: float, imp_boost: float, score: float, source: str) -> dict:
+def _build_explain(base_score: float, boost: float, imp_boost: float, ctx_boost: float, score: float, source: str) -> dict:
     return {
         "base_score": round(base_score, 3),
         "type_boost": round(boost, 3),
         "importance_boost": round(imp_boost, 3),
+        "context_boost": round(ctx_boost, 3),
         "final_score": round(score, 3),
         "source": source,
     }
@@ -72,6 +97,32 @@ def _build_explain(base_score: float, boost: float, imp_boost: float, score: flo
 
 def _sanitize_fts5_token(token: str) -> str:
     return re.sub(r"[^\w]", "", token)
+
+
+def _fts_match_term(term: str) -> str | None:
+    """Build one FTS5 MATCH atom; multi-word terms become quoted phrases."""
+    words = [_sanitize_fts5_token(w) for w in term.split()]
+    words = [w for w in words if w]
+    if not words:
+        return None
+    return '"' + " ".join(words) + '"'
+
+
+def _stem_variants(token: str) -> set[str]:
+    """Light rule-based stemming: generator -> generate, generating, generated, ..."""
+    t = token.casefold()
+    base = None
+    for suf in _STEM_SUFFIXES:
+        if t.endswith(suf) and len(t) - len(suf) >= 3:
+            base = t[: -len(suf)]
+            break
+    if base is None:
+        base = t[:-1] if t.endswith("e") and len(t) > 3 else t
+    elif base.endswith("e"):
+        base = base[:-1]
+    variants = {base + form for form in _STEM_FORMS}
+    variants.add(base)
+    return {v for v in variants if v and v != t}
 
 
 def auto_strategy(query: str) -> str:
@@ -118,6 +169,10 @@ class Storage:
         self._init_lock = threading.Lock()
         self._config_lock = threading.Lock()
         self._db_initialized = False
+        # Query expansion dictionary (configurable per instance / per call)
+        self.expansion_dictionary: dict[str, list[str]] = dict(DEFAULT_EXPANSIONS)
+        # Session-scoped recency of accessed collections (most recent first)
+        self._recent_collections: deque[str] = deque(maxlen=_RECENT_COLLECTIONS_MAX)
 
     def close(self) -> None:
         conn = getattr(self._local, "conn", None)
@@ -386,18 +441,19 @@ class Storage:
                 seen.add(r["path"])
         return results
 
-    def _apply_boosts(self, results: list[dict], query: str, query_terms: list[str], explain: bool) -> list[dict]:
-        """Apply lexical relevance + type/importance boosts; public score clamped 0..1.
+    def _apply_boosts(self, results: list[dict], query: str, query_terms: list[str], explain: bool, context_collections: set[str] | None = None) -> list[dict]:
+        """Apply lexical relevance + type/importance/context boosts; public score clamped 0..1.
 
         base_score is a corpus-independent lexical relevance [0,1] so the 0.3 threshold used by
         the conflict detector stays meaningful on small local indexes (where FTS5 bm25 floors at
-        ~1e-6).
+        ~1e-6). context_collections names collections receiving the +0.1 context boost.
         """
         for r in results:
             base_score = lexical_relevance(query_terms, r.get("title", ""), r.get("content", ""), r.get("_bm25_score", None))
             boost = type_boost(query, r)
             imp_boost = importance_boost(r)
-            raw_score = base_score + boost + imp_boost
+            ctx_boost = CONTEXT_BOOST if context_collections and r.get("collection") in context_collections else 0.0
+            raw_score = base_score + boost + imp_boost + ctx_boost
             # Public score is clamped to 0..1 for callers; explain reports the unclamped raw score
             # so component scores still sum to final_score in explain output.
             r["_raw_score"] = raw_score
@@ -406,12 +462,70 @@ class Storage:
             public_score = min(1.0, raw_score)
             r[_FIELD_SCORE] = public_score
             if explain:
-                r["explain"] = _build_explain(base_score, boost, imp_boost, raw_score, r.get("source", _UNKNOWN))
+                r["explain"] = _build_explain(base_score, boost, imp_boost, ctx_boost, raw_score, r.get("source", _UNKNOWN))
         return results
 
-    def _run_hybrid_search(self, query: str, collections: list[str] | None, limit: int, min_score: float) -> list[dict]:
+    def _expand_query(self, query: str, expansion: dict[str, list[str]] | None = None) -> list[str]:
+        """Expand a query with synonyms, stem variants, and pattern-mapped terms.
+
+        Returns the original query terms followed by expansion additions (deduped, additions
+        capped at _MAX_EXPANSION_TERMS). `expansion` extends/overrides the configurable
+        instance dictionary (self.expansion_dictionary, seeded from DEFAULT_EXPANSIONS).
+        """
+        dictionary = {**self.expansion_dictionary, **(expansion or {})}
+        q = (query or "").casefold()
+        out: list[str] = []
+        seen: set[str] = set()
+        additions = 0
+
+        def _add(term: str) -> None:
+            nonlocal additions
+            key = term.casefold()
+            if not key or key in seen or additions >= _MAX_EXPANSION_TERMS:
+                return
+            seen.add(key)
+            out.append(term)
+            additions += 1
+
+        for token in query.split():
+            key = token.casefold()
+            if key not in seen:
+                seen.add(key)
+                out.append(token)
+
+        # Dictionary terms first (synonyms + pattern mapping), then stem variants.
+        for key, terms in dictionary.items():
+            if re.search(rf"(?<![\w]){re.escape(key.casefold())}(?![\w])", q):
+                for term in terms:
+                    _add(term)
+        for token in query.split():
+            for variant in sorted(_stem_variants(token)):
+                _add(variant)
+        return out
+
+    def _recent_boost(self, context: list[str] | None) -> set[str] | None:
+        """Collections to boost for a search: explicit context plus session recents.
+
+        Returns None when no context parameter was given (boost opt-out for plain search).
+        """
+        if context is None:
+            return None
+        return set(context) | set(self.recent_collections())
+
+    def _track_recent(self, results: list[dict]) -> None:
+        """Record accessed collections in the session recents (most recent first)."""
+        for r in results:
+            coll = r.get("collection")
+            if coll and (not self._recent_collections or self._recent_collections[0] != coll):
+                self._recent_collections.appendleft(coll)
+
+    def recent_collections(self) -> list[str]:
+        """Collections accessed this session, most recent first."""
+        return list(self._recent_collections)
+
+    def _run_hybrid_search(self, query: str, collections: list[str] | None, limit: int, min_score: float, match_any: bool = False, terms: list[str] | None = None) -> list[dict]:
         max_intermediate = limit * _HYBRID_MULTIPLIER
-        results = self._search_fts5(query, collections, limit * 2)
+        results = self._search_fts5(query, collections, limit * 2, match_any=match_any, terms=terms)
         # Try vector if FTS results are sparse
         if len(results) < limit:
             try:
@@ -442,7 +556,7 @@ class Storage:
         except ImportError:
             return None
 
-    def _search_strategy(self, query: str, collections: list[str] | None, limit: int, strategy: str, min_score: float, match_any: bool = False) -> list[dict]:
+    def _search_strategy(self, query: str, collections: list[str] | None, limit: int, strategy: str, min_score: float, match_any: bool = False, terms: list[str] | None = None) -> list[dict]:
         """Dispatch to the right search backend based on strategy."""
         if strategy == "vector":
             results = self._search_vector(query, limit, min_score)
@@ -451,9 +565,9 @@ class Storage:
             strategy = "fts"
 
         if strategy == "hybrid":
-            return self._run_hybrid_search(query, collections, limit, min_score)
+            return self._run_hybrid_search(query, collections, limit, min_score, match_any=match_any, terms=terms)
 
-        return self._search_fts5(query, collections, limit, match_any=match_any)
+        return self._search_fts5(query, collections, limit, match_any=match_any, terms=terms)
 
     def _track_retrieval(self, results: list[dict], limit: int) -> None:
         """Increment retrieval counts for returned results."""
@@ -472,12 +586,21 @@ class Storage:
         explain: bool = False,
         min_score: float = 0.0,
         match_any: bool = False,
+        context: list[str] | None = None,
+        expand: bool = False,
     ) -> Ok[list[dict]] | Err:
         """Full-text search.
 
         match_any=True relaxes the default implicit-AND FTS5 semantics to an OR of query tokens.
         It is intended for internal similarity scans (e.g. conflict detection) where recall matters
         more than strict multi-term matching.
+
+        expand=True widens recall through _expand_query (synonyms, stems, pattern mapping) with OR
+        semantics over the expanded terms; scoring still ranks by the original query terms.
+
+        context names collections to boost by CONTEXT_BOOST (+0.1). When it is given — even as an
+        empty list — recently accessed collections (session recents) get the same boost. When it
+        is omitted, no context boost applies (plain kb_search behaviour is unchanged).
         """
         query_error = validate_query(query)
         if query_error:
@@ -487,12 +610,13 @@ class Storage:
         if strategy is None:
             strategy = auto_strategy(query)
 
-        results = self._search_strategy(query, collections, limit, strategy, min_score, match_any=match_any)
+        terms = self._expand_query(query) if expand else None
+        results = self._search_strategy(query, collections, limit, strategy, min_score, match_any=match_any or expand, terms=terms)
 
         # Pre-tokenize once; lexical_relevance uses it as the canonical query signal so that all
         # strategies (fts/like/vector) produce corpus-independent scores in [0,1].
         query_terms = _query_terms(query)
-        results = self._apply_boosts(results, query, query_terms, explain)
+        results = self._apply_boosts(results, query, query_terms, explain, self._recent_boost(context))
         # Rank by the raw (unclamped) score so differences added by boosts are preserved,
         # while the public score field stays clamped to 0..1 for callers.
         results.sort(key=lambda x: -x.get("_raw_score", x.get(_FIELD_SCORE, 0.0)))
@@ -500,6 +624,7 @@ class Storage:
             results = [r for r in results if r.get(_FIELD_SCORE, 0) >= min_score]
 
         self._track_retrieval(results, limit)
+        self._track_recent(results[:limit])
 
         return Ok(value=results[:limit])
 
@@ -556,27 +681,32 @@ class Storage:
             return base + f" AND d.collection IN ({placeholders}) ORDER BY rank LIMIT ?", collections
         return base + " ORDER BY rank LIMIT ?", []
 
-    def _search_fts5(self, query: str, collections: list[str] | None, limit: int, match_any: bool = False) -> list[dict]:
+    def _search_fts5(self, query: str, collections: list[str] | None, limit: int, match_any: bool = False, terms: list[str] | None = None) -> list[dict]:
         """FTS5 search.
 
         match_any=True builds an OR of the query tokens (broad recall — used by conflict detection);
         match_any=False (default) keeps FTS5's implicit AND across matched tokens so multi-term
         queries still require each salient term.
+
+        terms, when given, replaces the tokenization of `query` (used by query expansion;
+        multi-word terms match as quoted phrases).
         """
         conn = self._get_conn()
         try:
-            sanitized: list[str] = []
+            matches: list[str] = []
             seen: set[str] = set()
-            for t in query.split():
-                t = _sanitize_fts5_token(t)
-                t = t.strip()
-                if t and t not in seen:
-                    seen.add(t)
-                    sanitized.append(t)
-            if not sanitized:
+            for raw in (terms if terms is not None else query.split()):
+                key = raw.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                match = _fts_match_term(raw)
+                if match:
+                    matches.append(match)
+            if not matches:
                 return []
             joiner = " OR " if match_any else " "
-            fts_query = joiner.join(f'"{t}"' for t in sanitized)
+            fts_query = joiner.join(matches)
             sql_suffix, extra_params = self._build_fts_sql(collections)
             params = [fts_query] + extra_params + [limit]
             rows = conn.execute(sql_suffix, params).fetchall()
@@ -647,6 +777,7 @@ class Storage:
             if chunk is not None:
                 row = conn.execute(sql, params).fetchone()
                 if row:
+                    self._track_recent([{"collection": row["collection"]}])
                     return Ok(value=dict(row))
                 return Err(error=f"Document not found: {file_path}")
 
@@ -654,6 +785,7 @@ class Storage:
             if not rows:
                 return Err(error=f"Document not found: {file_path}")
             content = "\n".join(r["content"] for r in rows)
+            self._track_recent([{"collection": rows[0]["collection"]}])
             return Ok(
                 value={
                     "file_path": rows[0]["file_path"],

@@ -5,13 +5,16 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 
 from conflicts import ConflictDetector
 from import_guard import check_imports
+from llm import build_answer_prompt, extract_keywords, host_complete
+from result import Err
 from storage import Storage
 from sync import Syncer, get_username
 from uri import URIRouter
+from validation import validate_question
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("docs-haven")
@@ -90,6 +93,77 @@ async def kb_search(
         collections = collections[:100]
     result = storage.search(query, collections, limit, explain=explain, min_score=min_score)
     return _unwrap(result)
+
+
+@mcp.tool()
+async def kb_ask(
+    question: str,
+    collections: list[str] | None = None,
+    context: list[str] | None = None,
+    limit: int = 5,
+    *,
+    explain: bool = False,
+    ctx: Context | None = None,
+) -> dict:
+    """Ask a question in natural language and get an answer with citations.
+
+    Extracts keywords from the question, runs an expanded full-text search
+    (synonyms, stems, patterns), ranks the top chunks, and asks the MCP host LLM
+    to summarize them with inline [n] citations. If the host cannot provide a
+    completion, returns the assembled chunks and the prompt with
+    answer_mode="host_unavailable" instead of failing.
+
+    Args:
+        question: Natural-language question (e.g. "how to use Depends with parameters in FastAPI?")
+        collections: Filter to specific collections (optional)
+        context: Collections to prioritize (+0.1 boost); recently viewed collections are boosted too (optional)
+        limit: Max source chunks (default: 5)
+        explain: Include scoring breakdown per chunk (default: false)
+    """
+    validation_error = validate_question(question)
+    if validation_error:
+        return _unwrap(Err(error=validation_error))
+    keywords = extract_keywords(question)
+    if not keywords:
+        return _unwrap(Err(error="Question has no searchable keywords"))
+
+    storage = _get_storage()
+    if collections and len(collections) > 100:
+        collections = collections[:100]
+    result = storage.search(
+        " ".join(keywords),
+        collections=collections,
+        limit=limit,
+        explain=explain,
+        context=context if context is not None else [],
+        expand=True,
+    )
+    if result.is_err:
+        return _unwrap(result)
+
+    chunks = []
+    for r in result.value:
+        chunk = {
+            "collection": r["collection"],
+            "file_path": r["file_path"],
+            "chunk_index": r["chunk"],
+            "title": r["title"],
+            "content": r["content"],
+            "score": r["score"],
+        }
+        if explain:
+            chunk["explain"] = r.get("explain")
+        chunks.append(chunk)
+    citations = [{"collection": c["collection"], "file_path": c["file_path"], "chunk_index": c["chunk_index"]} for c in chunks]
+
+    if not chunks:
+        return {"answer": "", "answer_mode": "no_results", "chunks": [], "citations": []}
+
+    prompt = build_answer_prompt(question, chunks)
+    answer = await host_complete(ctx, prompt)
+    if answer is None:
+        return {"answer": "", "answer_mode": "host_unavailable", "chunks": chunks, "citations": citations, "prompt": prompt}
+    return {"answer": answer, "answer_mode": "llm", "chunks": chunks, "citations": citations}
 
 
 @mcp.tool()

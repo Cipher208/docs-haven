@@ -57,6 +57,14 @@ def validate_query(query: str) -> str | None:
     return None
 
 
+def validate_question(question: str) -> str | None:
+    if not question or not question.strip():
+        return "Question cannot be empty"
+    if len(question) > _MAX_QUERY_LENGTH:
+        return f"Question too long (max {_MAX_QUERY_LENGTH} chars)"
+    return None
+
+
 def validate_file_mask(mask: str) -> str | None:
     if ".." in mask:
         return "File mask must not contain '..' (path traversal)"
