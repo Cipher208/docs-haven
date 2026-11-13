@@ -61,22 +61,27 @@ def test_explain_shows_nonzero_components(tmp_storage: Storage) -> None:
 
 
 def test_min_score_filters(tmp_storage: Storage) -> None:
-    """min_score фильтрует результаты."""
+    """min_score фильтрует результаты.
+
+    При query "shared" lexical_relevance = 0.65 (токен + фраза в content), importance_boost
+    (recency) ~0.1 → score ~0.75. Первый поиск поднимает retrieval_count, поэтому второй
+    поиск с min_score чуть выше 0.75 должен отфильтровать оба документа.
+    """
     storage = tmp_storage
 
     storage.bulk_insert_raw("c", "a.md", "shared text", "A")
     storage.bulk_insert_raw("c", "b.md", "shared text", "B")
 
-    # С min_score=0.05 оба документа должны проходить (после исправления score >= 0.05 для обоих).
+    # Первый поиск: score ~ 0.75 >= 0.05 → оба проходят.
     result = storage.search("shared", collections=["c"], limit=10, min_score=0.05)
     assert result.is_ok, result
     docs = result.value
-    assert len(docs) == 2, f"expected 2 docs with min_score=0.05, got {len(docs)}: {[(d['path'], d.get('score')) for d in docs]}"
+    assert len(docs) == 2, f"expected 2 docs with min_score=0.05, got {len(docs)}: {[(d['path'], round(d.get('score'), 4)) for d in docs]}"
 
-    # С min_score=0.2 ни один документ не должен проходить (потому что score ~ 0.1 для обоих).
-    result = storage.search("shared", collections=["c"], limit=10, min_score=0.2)
+    # Второй поиск: retrieval_count уже 1 → score ~ 0.7575, min_score 0.77 фильтрует.
+    result = storage.search("shared", collections=["c"], limit=10, min_score=0.77)
     assert result.is_ok, result
-    assert len(result.value) == 0, f"expected 0 docs with min_score=0.2, got {len(result.value)}"
+    assert len(result.value) == 0, f"expected 0 docs with min_score=0.77, got {len(result.value)}: {[(d['path'], round(d.get('score'), 4)) for d in result.value]}"
 
 
 def test_importance_boost_reflected(tmp_storage: Storage) -> None:

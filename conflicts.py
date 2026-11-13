@@ -62,7 +62,13 @@ class ConflictDetector:
             self._storage = Storage.default()
         return self._storage
 
-    def detect(self, title: str, content: str, collections: list[str] | None = None) -> ConflictResult:
+    def detect(
+        self,
+        title: str,
+        content: str,
+        collections: list[str] | None = None,
+        exclude_id: str | None = None,
+    ) -> ConflictResult:
         """Detect conflicts for a new document.
 
         Searches for similar documents using the Storage search engine.
@@ -71,36 +77,50 @@ class ConflictDetector:
             title: Document title
             content: Document content (for context)
             collections: Optional collection filter
+            exclude_id: File path to exclude from candidates (the document being checked)
 
         Returns:
             ConflictResult with candidates and judgment status
         """
-        candidates = self._find_similar(title, content, collections)
+        candidates = self._find_similar(title, content, collections, exclude_id=exclude_id)
 
         return ConflictResult(
             new_title=title,
             candidates=candidates,
         )
 
-    def _find_similar(self, title: str, content: str = "", collections: list[str] | None = None) -> list[dict]:
-        """Find documents with similar titles using Storage search."""
+    def _find_similar(
+        self,
+        title: str,
+        content: str = "",
+        collections: list[str] | None = None,
+        exclude_id: str | None = None,
+    ) -> list[dict]:
+        """Find documents with similar titles using Storage search.
+
+        Conflict detection is about the title (the thing being deduped), so we search by title
+        only with relaxed OR semantics — the old f"{title} {content[:200]}" AND chain was too
+        strict and made the detector never fire (P0-4). Scores now come from lexical_relevance,
+        which is corpus-independent, so the 0.3 threshold is reachable on a small local index.
+        The document under check is excluded so a lone unique doc does not match itself.
+        """
         storage = self._get_storage()
 
-        # Search with title + content keywords for better coverage
-        query = f"{title} {content[:200]}" if content else title
         result = storage.search(
-            query=query,
+            query=title,
             collections=collections,
             limit=self.MAX_CANDIDATES + 2,
             strategy="fts",
+            match_any=True,
         )
 
         if result.is_err:
             return []
 
-        # Filter by score threshold and exclude exact matches
         candidates = []
         for r in result.value:  # type: ignore[union-attr]
+            if exclude_id and r.get("file_path", "") == exclude_id:
+                continue
             score = r.get("score", 0)
             if score >= self.SCORE_THRESHOLD:
                 candidates.append(
@@ -147,7 +167,7 @@ class ConflictDetector:
 
         title = new_doc.value.get("title", "")  # type: ignore[union-attr]
         content = new_doc.value.get("content", "")  # type: ignore[union-attr]
-        candidates = self.detect(title, content)
+        candidates = self.detect(title, content, exclude_id=new_id)
 
         judgments_result = storage.get_judgments(new_id)
         judgments = judgments_result.value if judgments_result.is_ok else []  # type: ignore[union-attr]

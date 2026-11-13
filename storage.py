@@ -21,7 +21,7 @@ from pathlib import Path
 
 from chunking import _BINARY_SUFFIXES, auto_chunk, chunk_code, chunk_text  # noqa: F401
 from result import Err, Ok
-from scoring import importance_boost, type_boost  # noqa: F401
+from scoring import _query_terms, importance_boost, lexical_relevance, type_boost  # noqa: F401
 from uri import VALID_DOMAINS as _VALID_DOMAINS
 from validation import (
     _MAX_SEARCH_LIMIT,
@@ -386,21 +386,23 @@ class Storage:
                 seen.add(r["path"])
         return results
 
-    def _apply_boosts(self, results: list[dict], query: str, explain: bool) -> list[dict]:
+    def _apply_boosts(self, results: list[dict], query: str, query_terms: list[str], explain: bool) -> list[dict]:
+        """Apply lexical relevance + type/importance boosts; public score clamped 0..1.
+
+        base_score is a corpus-independent lexical relevance [0,1] so the 0.3 threshold used by
+        the conflict detector stays meaningful on small local indexes (where FTS5 bm25 floors at
+        ~1e-6).
+        """
         for r in results:
-            # _FIELD_SCORE now holds a normalized bm25 (0..1) for FTS results (set in _search_fts5)
-            # or a fixed value for LIKE/vector results. Keep the raw normalized value before boosts
-            # so explain can report the base signal separately from the final clamped score.
-            base_score = r.get(_FIELD_SCORE, 0.0)
+            base_score = lexical_relevance(query_terms, r.get("title", ""), r.get("content", ""), r.get("_bm25_score", None))
             boost = type_boost(query, r)
             imp_boost = importance_boost(r)
-            total_boost = boost + imp_boost
-            raw_score = base_score + total_boost
+            raw_score = base_score + boost + imp_boost
             # Public score is clamped to 0..1 for callers; explain reports the unclamped raw score
             # so component scores still sum to final_score in explain output.
             r["_raw_score"] = raw_score
-            if total_boost > 0:
-                r["boost"] = total_boost
+            if boost + imp_boost > 0:
+                r["boost"] = boost + imp_boost
             public_score = min(1.0, raw_score)
             r[_FIELD_SCORE] = public_score
             if explain:
@@ -440,7 +442,7 @@ class Storage:
         except ImportError:
             return None
 
-    def _search_strategy(self, query: str, collections: list[str] | None, limit: int, strategy: str, min_score: float) -> list[dict]:
+    def _search_strategy(self, query: str, collections: list[str] | None, limit: int, strategy: str, min_score: float, match_any: bool = False) -> list[dict]:
         """Dispatch to the right search backend based on strategy."""
         if strategy == "vector":
             results = self._search_vector(query, limit, min_score)
@@ -451,7 +453,7 @@ class Storage:
         if strategy == "hybrid":
             return self._run_hybrid_search(query, collections, limit, min_score)
 
-        return self._search_fts5(query, collections, limit)
+        return self._search_fts5(query, collections, limit, match_any=match_any)
 
     def _track_retrieval(self, results: list[dict], limit: int) -> None:
         """Increment retrieval counts for returned results."""
@@ -469,7 +471,14 @@ class Storage:
         *,
         explain: bool = False,
         min_score: float = 0.0,
+        match_any: bool = False,
     ) -> Ok[list[dict]] | Err:
+        """Full-text search.
+
+        match_any=True relaxes the default implicit-AND FTS5 semantics to an OR of query tokens.
+        It is intended for internal similarity scans (e.g. conflict detection) where recall matters
+        more than strict multi-term matching.
+        """
         query_error = validate_query(query)
         if query_error:
             return Err(error=query_error)
@@ -478,9 +487,12 @@ class Storage:
         if strategy is None:
             strategy = auto_strategy(query)
 
-        results = self._search_strategy(query, collections, limit, strategy, min_score)
+        results = self._search_strategy(query, collections, limit, strategy, min_score, match_any=match_any)
 
-        results = self._apply_boosts(results, query, explain)
+        # Pre-tokenize once; lexical_relevance uses it as the canonical query signal so that all
+        # strategies (fts/like/vector) produce corpus-independent scores in [0,1].
+        query_terms = _query_terms(query)
+        results = self._apply_boosts(results, query, query_terms, explain)
         # Rank by the raw (unclamped) score so differences added by boosts are preserved,
         # while the public score field stays clamped to 0..1 for callers.
         results.sort(key=lambda x: -x.get("_raw_score", x.get(_FIELD_SCORE, 0.0)))
@@ -492,9 +504,8 @@ class Storage:
         return Ok(value=results[:limit])
 
     def _row_to_result(self, row: sqlite3.Row, source: str, highlighted: str | None = None, score: float | None = None) -> dict:
-        # Handle rank column gracefully (may not exist in LIKE/get queries).
-        # Keep raw -rank as a float (no rounding) so downstream normalization can recover
-        # meaningful differences; bm25 values are tiny (~1e-6) but still useful after min-max.
+        # _FIELD_SCORE is the public (clamped) score set later by _apply_boosts; here we only
+        # stash a raw -rank tie-break for FTS rows (absent on LIKE/get rows).
         rank = row["rank"] if "rank" in row.keys() else None
         return {
             "path": f"{row['collection']}/{row['file_path']}",
@@ -505,10 +516,11 @@ class Storage:
             "title": row["title"],
             "chunk": row["chunk_index"],
             "total_chunks": row["total_chunks"],
-            _FIELD_SCORE: score if score is not None else (-rank if rank is not None else 0.0),
+            _FIELD_SCORE: score if score is not None else 0.0,
             "source": source,
             "created_at": row["created_at"] if "created_at" in row.keys() else None,
             "retrieval_count": row["retrieval_count"] if "retrieval_count" in row.keys() else 0,
+            "_bm25_score": (-rank if rank is not None else None),
         }
 
     def _increment_retrieval(self, paths: list[str]) -> None:
@@ -544,38 +556,41 @@ class Storage:
             return base + f" AND d.collection IN ({placeholders}) ORDER BY rank LIMIT ?", collections
         return base + " ORDER BY rank LIMIT ?", []
 
-    def _search_fts5(self, query: str, collections: list[str] | None, limit: int) -> list[dict]:
+    def _search_fts5(self, query: str, collections: list[str] | None, limit: int, match_any: bool = False) -> list[dict]:
+        """FTS5 search.
+
+        match_any=True builds an OR of the query tokens (broad recall — used by conflict detection);
+        match_any=False (default) keeps FTS5's implicit AND across matched tokens so multi-term
+        queries still require each salient term.
+        """
         conn = self._get_conn()
         try:
-            # Sanitize: strip everything except alphanumeric, spaces, and hyphens
-            sanitized = []
+            sanitized: list[str] = []
+            seen: set[str] = set()
             for t in query.split():
                 t = _sanitize_fts5_token(t)
                 t = t.strip()
-                if t:
-                    sanitized.append(f'"{t}"')
-            fts_query = " ".join(sanitized) if sanitized else '""'
+                if t and t not in seen:
+                    seen.add(t)
+                    sanitized.append(t)
+            if not sanitized:
+                return []
+            joiner = " OR " if match_any else " "
+            fts_query = joiner.join(f'"{t}"' for t in sanitized)
             sql_suffix, extra_params = self._build_fts_sql(collections)
             params = [fts_query] + extra_params + [limit]
             rows = conn.execute(sql_suffix, params).fetchall()
             results = [self._row_to_result(r, "fts5", r["highlighted"]) for r in rows]
 
-            # Normalize bm25 scores (currently stored in _FIELD_SCORE as -rank) to 0..1 by min-max
-            # across results so ranking reflects relative relevance and score > 0 for every hit.
-            # When all ranks are equal (single result or identical content) we set bm25 to 0.0 rather
-            # than 1.0 so that boosts (recency/frequency) are what lift the result above the threshold.
-            base_scores = [r.get(_FIELD_SCORE, 0.0) for r in results]
-            if base_scores:
-                min_base = min(base_scores)
-                max_base = max(base_scores)
-                range_base = max_base - min_base
-                if range_base > 0:
-                    for r in results:
-                        r[_FIELD_SCORE] = (r[_FIELD_SCORE] - min_base) / range_base
+            # Carry bm25 as a tie-break only (raw -rank, no min-max normalization). On tiny local
+            # corpora bm25 floors near 1e-6 and is not a meaningful primary signal; lexical relevance
+            # computed in _apply_boosts is what makes the 0.3 threshold reachable.
+            for r in results:
+                rank = r.pop(_FIELD_SCORE, None)
+                if rank is None:
+                    r["_bm25_score"] = None
                 else:
-                    # Single result or all ranks equal — no bm25 signal to distinguish them.
-                    for r in results:
-                        r[_FIELD_SCORE] = 0.0
+                    r["_bm25_score"] = float(-rank)
 
             return results
         except sqlite3.Error as e:
@@ -603,7 +618,7 @@ class Storage:
             sql_suffix, extra_params = self._build_like_sql(collections)
             params = [f"%{escaped}%", f"%{escaped}%"] + extra_params + [limit]
             rows = conn.execute(sql_suffix, params).fetchall()
-            return [self._row_to_result(r, "like", None, score=0.5) for r in rows]
+            return [self._row_to_result(r, "like", None, score=0.0) for r in rows]
         except sqlite3.Error as e:
             logger.debug("LIKE search failed: %s", e)
             return []
