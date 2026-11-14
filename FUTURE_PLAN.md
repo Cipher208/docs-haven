@@ -151,9 +151,18 @@ LLM summary from found chunks with citations.
   (0.4\*tag_overlap + 0.2\*same_collection + 0.4\*content_similarity) is
   spec-derived but lets same-collection proximity dominate realistic lexical
   signals; recalibrating the weights is a future decision.
-- **N4 — per-call corpus load.** `find_related`/`learn_topic` load the corpus
-  per call (O(corpus) memory and time via `_load_documents`). Fine for local
-  libraries; needs indexing at scale.
+- **N4 — corpus load per call: fixed (BH-4); memory limit remains.**
+  `find_related`/`learn_topic` now read the corpus through a per-Storage
+  invalidated in-memory cache (`_cached_documents`): one `_load_documents`
+  load per mutation epoch instead of per call. The cache is dropped on every
+  document-mutating path (insert/index, update, delete, bulk insert,
+  remove/rename collection, reindex, sync import); SQLite stays the single
+  source of truth. Resident memory is still O(corpus) — fine for local
+  libraries — and invalidation is instance-scoped (a second Storage over the
+  same data dir serves its own cache until its own rebuild). Not
+  thread-guarded: a lazy rebuild racing a concurrent mutation can serve one
+  stale epoch, healed by the next mutation. Indexing at scale remains the
+  future step.
 - **N5 — hard term cap in related lookup.** `_related_source_terms` keeps at
   most 512 unique terms (title first); in documents with more than ~511 unique
   word forms (~2000+ words) a subject living only in the body can fall outside

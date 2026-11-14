@@ -266,7 +266,9 @@ def _related_source_terms(title: str, content: str) -> list[str]:
     Cost: coverage/title scoring is O(terms) per candidate and negligible; the
     phrase substring scan in lexical_relevance is skipped for term sets above
     scoring._PHRASE_SCAN_MAX_TERMS, so the dominant per-call cost remains the
-    full corpus scan (FUTURE_PLAN P1 known limitation N4).
+    full corpus scan — served from the invalidated in-memory cache, so the
+    dominant remaining per-call cost is lexical scoring over the cached corpus
+    (FUTURE_PLAN P1 known limitation N4).
     """
     seen: set[str] = set()
     out: list[str] = []
@@ -307,6 +309,10 @@ class Storage:
         self._recent_collections: deque[str] = deque(maxlen=_RECENT_COLLECTIONS_MAX)
         # Session-scoped document-access log for kb_recent (newest first)
         self._recent_docs: deque[dict] = deque(maxlen=_RECENT_DOCS_MAX)
+        # Invalidated in-memory corpus cache for find_related/learn_topic (N4):
+        # populated lazily on first use, dropped by _invalidate_corpus_cache on
+        # every document-mutating path. SQLite stays the single source of truth.
+        self._corpus_cache: list[dict] | None = None
 
     def close(self) -> None:
         conn = getattr(self._local, "conn", None)
@@ -514,16 +520,19 @@ class Storage:
     def _index_files(self, collection: str, files: list[Path], repo_dir: Path, description: str | None) -> tuple[int, int]:
         """Index files into DB. Returns (indexed_count, total_chunks)."""
         conn = self._get_conn()
-        indexed = 0
-        total_chunks = 0
-        for f in files:
-            try:
-                total_chunks += self._index_file(conn, f, repo_dir, collection, description)
-                indexed += 1
-            except (OSError, sqlite3.Error) as e:
-                logger.debug("Skipping %s: %s", f, e)
-        conn.commit()
-        return indexed, total_chunks
+        try:
+            indexed = 0
+            total_chunks = 0
+            for f in files:
+                try:
+                    total_chunks += self._index_file(conn, f, repo_dir, collection, description)
+                    indexed += 1
+                except (OSError, sqlite3.Error) as e:
+                    logger.debug("Skipping %s: %s", f, e)
+            conn.commit()
+            return indexed, total_chunks
+        finally:
+            self._invalidate_corpus_cache()
 
     def add_repo(
         self,
@@ -1026,6 +1035,8 @@ class Storage:
         except sqlite3.Error as e:
             logger.debug("Update failed: %s", e)
             return Err(error=str(e))
+        finally:
+            self._invalidate_corpus_cache()
 
     def delete_document(self, file_path: str, collection: str | None = None) -> Ok[dict] | Err:
         """Delete a document, scoped to a single collection — never mass-deletes.
@@ -1060,6 +1071,8 @@ class Storage:
         except sqlite3.Error as e:
             logger.debug("Delete failed: %s", e)
             return Err(error=str(e))
+        finally:
+            self._invalidate_corpus_cache()
 
     def record_judgment(self, new_id: str, candidate_id: str, judgment: str) -> Ok[dict] | Err:
         conn = self._get_conn()
@@ -1118,6 +1131,8 @@ class Storage:
             return Ok(value={"status": "inserted", "file_path": file_path})
         except sqlite3.Error as e:
             return Err(error=str(e))
+        finally:
+            self._invalidate_corpus_cache()
 
     def delete_documents_scoped(self, file_path: str, collection: str) -> Ok[dict] | Err:
         """Delete a document scoped to a specific collection."""
@@ -1144,6 +1159,8 @@ class Storage:
         except sqlite3.Error as e:
             logger.debug("Bulk insert failed: %s", e)
             return Err(error=str(e))
+        finally:
+            self._invalidate_corpus_cache()
 
     def remove_collection(self, name: str) -> Ok[dict] | Err:
         """Remove a collection and all associated data."""
@@ -1177,6 +1194,8 @@ class Storage:
         except sqlite3.Error as e:
             logger.debug("Remove collection failed: %s", e)
             return Err(error=str(e))
+        finally:
+            self._invalidate_corpus_cache()
 
     def _rename_documents(self, conn: sqlite3.Connection, old: str, new: str) -> int:
         cursor = conn.execute("UPDATE documents SET collection = ? WHERE collection = ?", (new, old))
@@ -1231,6 +1250,8 @@ class Storage:
         except sqlite3.Error as e:
             logger.debug("Rename collection failed: %s", e)
             return Err(error=str(e))
+        finally:
+            self._invalidate_corpus_cache()
 
     def list_collections(self) -> Ok[list[dict]] | Err:
         conn = self._get_conn()
@@ -1321,6 +1342,9 @@ class Storage:
         `chunks`. Ordering follows first insertion so results stay deterministic.
         A row with chunk_index NULL (reachable only via raw SQL) is tolerated:
         the aggregate stays None until an integer chunk is seen (M9).
+
+        find_related/learn_topic consume this via _cached_documents, not
+        directly: a per-call load here is O(corpus) time and allocation (N4).
         """
         conn = self._get_conn()
         sql = "SELECT collection, file_path, title, content, chunk_index FROM documents"
@@ -1354,6 +1378,41 @@ class Storage:
             del entry["contents"]
             out.append(entry)
         return out
+
+    def _invalidate_corpus_cache(self) -> None:
+        """Drop the in-memory corpus cache; the next read rebuilds from SQLite.
+
+        Called from every document-mutating method (insert/index, update,
+        delete, bulk insert, remove/rename collection, reindex) on all exits —
+        success, error and early return alike — so a partial mutation can never
+        be served stale. Deliberately NOT called for retrieval_count updates,
+        judgments, contexts and import markers: they do not change the
+        _load_documents projection, and retrieval counting runs inside
+        search (_track_retrieval). Invalidation is instance-scoped: a second Storage
+        over the same data dir does not see this instance's invalidations
+        (documented limitation, FUTURE_PLAN N4). Not thread-guarded: a lazy
+        rebuild racing a concurrent mutation can serve one stale epoch, healed
+        by the next mutation (FUTURE_PLAN N4).
+        """
+        self._corpus_cache = None
+
+    def _cached_documents(self, collection: str | None = None) -> list[dict]:
+        """Corpus for find_related/learn_topic via the invalidated in-memory cache.
+
+        Same data shape as _load_documents: the full corpus is loaded once and
+        cached; a collection argument filters the cached copy in memory. The
+        cache is dropped on every document-mutating path, so SQLite remains the
+        single source of truth and this is a pure read accelerator. Cached
+        entries are shared across calls — callers must treat them as read-only.
+        Resident memory is O(corpus), accepted for local libraries (N4).
+        """
+        cache = self._corpus_cache
+        if cache is None:
+            cache = self._load_documents()
+            self._corpus_cache = cache
+        if collection is not None:
+            return [doc for doc in cache if doc["collection"] == collection]
+        return cache
 
     def find_related(
         self, collection: str, file_path: str, chunk_index: int | None = None, limit: int = 5, *, explain: bool = False
@@ -1404,7 +1463,7 @@ class Storage:
             source_terms = _related_source_terms(source_title, source_content)
             source_title_terms = _token_set(source_title)
             related = []
-            for cand in self._load_documents():
+            for cand in self._cached_documents():
                 if cand["collection"] == collection and cand["file_path"] == file_path:
                     continue
                 cand_title_terms = _token_set(cand["title"])
@@ -1578,7 +1637,7 @@ class Storage:
             return Err(error="Topic has no searchable keywords")
         limit = min(limit, _MAX_SEARCH_LIMIT)
         try:
-            docs = self._load_documents(collection)
+            docs = self._cached_documents(collection)
             coll_totals: dict[str, int] = {}
             for doc in docs:
                 coll_totals[doc["collection"]] = coll_totals.get(doc["collection"], 0) + 1
@@ -1882,29 +1941,31 @@ class Storage:
             return Ok(value=0)
 
         conn = self._get_conn()
+        try:
+            # Delete old chunks for changed files
+            for item in changed:
+                conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, item["file_path"]))
+            conn.commit()
 
-        # Delete old chunks for changed files
-        for item in changed:
-            conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, item["file_path"]))
-        conn.commit()
-
-        # Re-index changed files
-        updated = 0
-        for item in changed:
-            fp = item["file_path"]
-            if item["status"] == _ACTION_DELETED:
-                updated += 1
-                continue
-            full = repo_dir / fp
-            if not full.exists() or full.is_symlink():
-                continue
-            try:
-                self._index_file(conn, full, repo_dir, collection, None)
-                updated += 1
-            except (OSError, sqlite3.Error) as e:
-                logger.debug("Reindexing %s failed: %s", fp, e)
-        conn.commit()
-        return Ok(value=updated)
+            # Re-index changed files
+            updated = 0
+            for item in changed:
+                fp = item["file_path"]
+                if item["status"] == _ACTION_DELETED:
+                    updated += 1
+                    continue
+                full = repo_dir / fp
+                if not full.exists() or full.is_symlink():
+                    continue
+                try:
+                    self._index_file(conn, full, repo_dir, collection, None)
+                    updated += 1
+                except (OSError, sqlite3.Error) as e:
+                    logger.debug("Reindexing %s failed: %s", fp, e)
+            conn.commit()
+            return Ok(value=updated)
+        finally:
+            self._invalidate_corpus_cache()
 
 
 # FTS5 triggers (extracted to reduce nesting in _init_db)
