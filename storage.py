@@ -148,6 +148,35 @@ def auto_strategy(query: str) -> str:
     return "hybrid"
 
 
+def resolve_chunk(row: object) -> dict | None:
+    """Resolve a search result row into the canonical chunk dict kb_* tools expose.
+
+    Rows may carry file_path (fts/like rows) or only a "collection/file_path"
+    path key (vector rows) — the same resolution _track_doc_accesses applies
+    (BH-5: kb_ask crashed with KeyError on expansion/vector rows). Returns
+    None when no path info can be resolved; callers skip such rows and log.
+    """
+    if not isinstance(row, dict):
+        return None
+    collection = row.get("collection") if isinstance(row.get("collection"), str) else None
+    file_path = row.get("file_path") if isinstance(row.get("file_path"), str) else None
+    if not file_path and isinstance(row.get("path"), str):
+        parts = row["path"].split("/", 1)
+        if len(parts) == 2:
+            collection, file_path = parts
+    if not collection or not file_path:
+        return None
+    chunk = row.get("chunk", row.get("chunk_index", 0))
+    return {
+        "collection": collection,
+        "file_path": file_path,
+        "chunk_index": chunk if isinstance(chunk, int) and not isinstance(chunk, bool) else 0,
+        "title": row.get("title", ""),
+        "content": row.get("content", ""),
+        "score": row.get("score", 0.0),
+    }
+
+
 # ── Storage ─────────────────────────────────────────────────────────────────
 
 

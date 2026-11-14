@@ -12,7 +12,7 @@ from conflicts import ConflictDetector
 from import_guard import check_imports
 from llm import build_answer_prompt, extract_keywords, host_complete
 from result import Err
-from storage import Storage
+from storage import Storage, resolve_chunk
 from sync import Syncer, get_username
 from uri import URIRouter
 from validation import validate_question
@@ -144,14 +144,11 @@ async def kb_ask(
 
     chunks = []
     for r in result.value:
-        chunk = {
-            "collection": r["collection"],
-            "file_path": r["file_path"],
-            "chunk_index": r["chunk"],
-            "title": r["title"],
-            "content": r["content"],
-            "score": r["score"],
-        }
+        chunk = resolve_chunk(r)
+        if chunk is None:
+            # BH-5: unresolvable row (no path info at all) — skip, never crash.
+            logger.debug("kb_ask: skipped unresolvable search row: %r", r)
+            continue
         if explain:
             chunk["explain"] = r.get("explain")
         chunks.append(chunk)
