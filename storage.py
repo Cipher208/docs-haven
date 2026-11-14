@@ -148,13 +148,20 @@ def auto_strategy(query: str) -> str:
     return "hybrid"
 
 
-def resolve_chunk(row: object) -> dict | None:
-    """Resolve a search result row into the canonical chunk dict kb_* tools expose.
+def _resolve_row(row: object, default_chunk: int | None) -> tuple[str, str, int | None] | None:
+    """Resolve (collection, file_path, chunk_index) from a search-style result row.
 
-    Rows may carry file_path (fts/like rows) or only a "collection/file_path"
-    path key (vector rows) — the same resolution _track_doc_accesses applies
-    (BH-5: kb_ask crashed with KeyError on expansion/vector rows). Returns
-    None when no path info can be resolved; callers skip such rows and log.
+    One shared resolver for resolve_chunk and _track_doc_accesses (BH-7: their
+    row parsing was near-duplicate). Rows may carry file_path (fts/like rows)
+    or only a "collection/file_path" path key (vector rows). Returns None when
+    no path info can be resolved; callers skip such rows.
+
+    default_chunk makes the callers' deliberate chunk tolerances explicit
+    (anchored in tests/test_kb_ask_row_shapes.py and tests/test_recent.py):
+    resolve_chunk passes 0 (kb_ask chunk dicts always carry an int index; an
+    absent or malformed chunk degrades to chunk 0), _track_doc_accesses passes
+    None (the access log records a malformed chunk as "no chunk", never
+    invents an index).
     """
     if not isinstance(row, dict):
         return None
@@ -166,11 +173,30 @@ def resolve_chunk(row: object) -> dict | None:
             collection, file_path = parts
     if not collection or not file_path:
         return None
-    chunk = row.get("chunk", row.get("chunk_index", 0))
+    chunk = row.get("chunk", row.get("chunk_index", default_chunk))
+    if not isinstance(chunk, int) or isinstance(chunk, bool):
+        chunk = default_chunk
+    return collection, file_path, chunk
+
+
+def resolve_chunk(row: object) -> dict | None:
+    """Resolve a search result row into the canonical chunk dict kb_* tools expose.
+
+    Rows may carry file_path (fts/like rows) or only a "collection/file_path"
+    path key (vector rows) — the same resolution _track_doc_accesses applies
+    (BH-5: kb_ask crashed with KeyError on expansion/vector rows). Returns
+    None when no path info can be resolved; callers skip such rows and log.
+    Strict mode (default_chunk=0): an absent or malformed chunk degrades to
+    chunk 0 so the dict always carries an int index.
+    """
+    resolved = _resolve_row(row, default_chunk=0)
+    if resolved is None or not isinstance(row, dict):
+        return None
+    collection, file_path, chunk = resolved
     return {
         "collection": collection,
         "file_path": file_path,
-        "chunk_index": chunk if isinstance(chunk, int) and not isinstance(chunk, bool) else 0,
+        "chunk_index": chunk,
         "title": row.get("title", ""),
         "content": row.get("content", ""),
         "score": row.get("score", 0.0),
@@ -312,7 +338,13 @@ class Storage:
         # Invalidated in-memory corpus cache for find_related/learn_topic (N4):
         # populated lazily on first use, dropped by _invalidate_corpus_cache on
         # every document-mutating path. SQLite stays the single source of truth.
+        # BH-9: the rebuild region and invalidations share self._corpus_lock;
+        # _corpus_epoch counts invalidations so an in-flight rebuild that raced
+        # one discards its snapshot instead of caching a stale epoch. The lock
+        # is reentrant so an invalidation may land mid-load on the same thread.
         self._corpus_cache: list[dict] | None = None
+        self._corpus_lock = threading.RLock()
+        self._corpus_epoch = 0
 
     def close(self) -> None:
         conn = getattr(self._local, "conn", None)
@@ -584,7 +616,9 @@ class Storage:
                 seen.add(r["path"])
         return results
 
-    def _apply_boosts(self, results: list[dict], query: str, query_terms: list[str], explain: bool, context_collections: set[str] | None = None) -> list[dict]:
+    def _apply_boosts(
+        self, results: list[dict], query: str, query_terms: list[str], explain: bool, context_collections: set[str] | None = None
+    ) -> list[dict]:
         """Apply lexical relevance + type/importance/context boosts; public score clamped 0..1.
 
         base_score is a corpus-independent lexical relevance [0,1] so the 0.3 threshold used by
@@ -666,7 +700,9 @@ class Storage:
         """Collections accessed this session, most recent first."""
         return list(self._recent_collections)
 
-    def _run_hybrid_search(self, query: str, collections: list[str] | None, limit: int, min_score: float, match_any: bool = False, terms: list[str] | None = None) -> list[dict]:
+    def _run_hybrid_search(
+        self, query: str, collections: list[str] | None, limit: int, min_score: float, match_any: bool = False, terms: list[str] | None = None
+    ) -> list[dict]:
         max_intermediate = limit * _HYBRID_MULTIPLIER
         results = self._search_fts5(query, collections, limit * 2, match_any=match_any, terms=terms)
         # Try vector if FTS results are sparse
@@ -699,7 +735,16 @@ class Storage:
         except ImportError:
             return None
 
-    def _search_strategy(self, query: str, collections: list[str] | None, limit: int, strategy: str, min_score: float, match_any: bool = False, terms: list[str] | None = None) -> list[dict]:
+    def _search_strategy(
+        self,
+        query: str,
+        collections: list[str] | None,
+        limit: int,
+        strategy: str,
+        min_score: float,
+        match_any: bool = False,
+        terms: list[str] | None = None,
+    ) -> list[dict]:
         """Dispatch to the right search backend based on strategy."""
         if strategy == "vector":
             results = self._search_vector(query, limit, min_score)
@@ -825,7 +870,9 @@ class Storage:
             return base + f" AND d.collection IN ({placeholders}) ORDER BY rank LIMIT ?", collections
         return base + " ORDER BY rank LIMIT ?", []
 
-    def _search_fts5(self, query: str, collections: list[str] | None, limit: int, match_any: bool = False, terms: list[str] | None = None) -> list[dict]:
+    def _search_fts5(
+        self, query: str, collections: list[str] | None, limit: int, match_any: bool = False, terms: list[str] | None = None
+    ) -> list[dict]:
         """FTS5 search.
 
         match_any=True builds an OR of the query tokens (broad recall — used by conflict detection);
@@ -839,7 +886,7 @@ class Storage:
         try:
             matches: list[str] = []
             seen: set[str] = set()
-            for raw in (terms if terms is not None else query.split()):
+            for raw in terms if terms is not None else query.split():
                 key = raw.casefold()
                 if key in seen:
                     continue
@@ -1318,22 +1365,17 @@ class Storage:
         """Record accessed documents from search-style result rows.
 
         Rows may carry file_path (fts/like rows) or only a "collection/file_path"
-        path key (vector rows) — both resolve to the same access record.
-        Malformed rows (wrong types) are skipped so the search() hot path never
-        raises on logging.
+        path key (vector rows) — both resolve to the same access record through
+        the shared _resolve_row (BH-7) in lenient mode (default_chunk=None: a
+        malformed chunk is recorded as 'no chunk'). Malformed rows (wrong
+        types) are skipped so the search() hot path never raises on logging.
         """
         for r in results:
-            if not isinstance(r, dict):
+            resolved = _resolve_row(r, default_chunk=None)
+            if resolved is None:
                 continue
-            collection = r.get("collection") if isinstance(r.get("collection"), str) else None
-            file_path = r.get("file_path") if isinstance(r.get("file_path"), str) else None
-            if not file_path and isinstance(r.get("path"), str):
-                parts = r["path"].split("/", 1)
-                if len(parts) == 2:
-                    collection, file_path = parts
-            chunk = r.get("chunk")
-            if collection and file_path:
-                self._track_doc_access(collection, file_path, chunk if isinstance(chunk, int) and not isinstance(chunk, bool) else None)
+            collection, file_path, chunk = resolved
+            self._track_doc_access(collection, file_path, chunk)
 
     def _load_documents(self, collection: str | None = None) -> list[dict]:
         """All documents aggregated per (collection, file_path) with full content.
@@ -1390,11 +1432,15 @@ class Storage:
         _load_documents projection, and retrieval counting runs inside
         search (_track_retrieval). Invalidation is instance-scoped: a second Storage
         over the same data dir does not see this instance's invalidations
-        (documented limitation, FUTURE_PLAN N4). Not thread-guarded: a lazy
-        rebuild racing a concurrent mutation can serve one stale epoch, healed
-        by the next mutation (FUTURE_PLAN N4).
+        (documented limitation, FUTURE_PLAN N4). Rebuilds are lock-guarded
+        (BH-9): invalidation and the lazy rebuild region share _corpus_lock and
+        every invalidation bumps _corpus_epoch, so an invalidation racing a
+        rebuild always wins — the in-flight snapshot is discarded, never
+        cached as a stale epoch.
         """
-        self._corpus_cache = None
+        with self._corpus_lock:
+            self._corpus_epoch += 1
+            self._corpus_cache = None
 
     def _cached_documents(self, collection: str | None = None) -> list[dict]:
         """Corpus for find_related/learn_topic via the invalidated in-memory cache.
@@ -1405,11 +1451,21 @@ class Storage:
         single source of truth and this is a pure read accelerator. Cached
         entries are shared across calls — callers must treat them as read-only.
         Resident memory is O(corpus), accepted for local libraries (N4).
+        Rebuilds are lock-guarded (BH-9): the rebuild region runs under
+        _corpus_lock and is retried while invalidations keep landing — a
+        snapshot loaded across an invalidation is dropped, so readers never
+        observe a stale epoch.
         """
         cache = self._corpus_cache
         if cache is None:
-            cache = self._load_documents()
-            self._corpus_cache = cache
+            with self._corpus_lock:
+                cache = self._corpus_cache
+                while cache is None:
+                    epoch = self._corpus_epoch
+                    loaded = self._load_documents()
+                    if self._corpus_epoch == epoch:
+                        self._corpus_cache = loaded
+                        cache = loaded
         if collection is not None:
             return [doc for doc in cache if doc["collection"] == collection]
         return cache
@@ -1701,10 +1757,13 @@ class Storage:
         """Return True if chunk_id was already imported into this storage."""
         conn = self._get_conn()
         try:
-            return conn.execute(
-                "SELECT 1 FROM imported_chunks WHERE chunk_id = ?",
-                (chunk_id,),
-            ).fetchone() is not None
+            return (
+                conn.execute(
+                    "SELECT 1 FROM imported_chunks WHERE chunk_id = ?",
+                    (chunk_id,),
+                ).fetchone()
+                is not None
+            )
         except sqlite3.Error:
             return False
 

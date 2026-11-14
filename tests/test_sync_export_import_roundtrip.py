@@ -17,22 +17,14 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
-import tempfile
-from pathlib import Path
 
-import pytest
-
-from result import Err, Ok
-from sync import Syncer
 from storage import Storage
+from sync import Syncer
 
 
 def _chunk_rows(storage: Storage) -> list[dict]:
     conn = storage._get_conn()
-    return conn.execute(
-        "SELECT id, collection, file_path, title, content, chunk_index, total_chunks "
-        "FROM documents ORDER BY id"
-    ).fetchall()
+    return conn.execute("SELECT id, collection, file_path, title, content, chunk_index, total_chunks FROM documents ORDER BY id").fetchall()
 
 
 def _export_chunk_data(storage: Storage) -> list[dict]:
@@ -57,8 +49,7 @@ def _count(storage: Storage) -> int:
 def _find(storage: Storage, collection: str, path: str) -> dict | None:
     conn = storage._get_conn()
     row = conn.execute(
-        "SELECT id, collection, file_path, title, content FROM documents "
-        "WHERE collection = ? AND file_path = ?",
+        "SELECT id, collection, file_path, title, content FROM documents WHERE collection = ? AND file_path = ?",
         (collection, path),
     ).fetchone()
     return dict(row) if row else None
@@ -97,6 +88,7 @@ def _fresh_import_target(tmp_storage: Storage, sub: str) -> tuple[Storage, Synce
 
 # ── Requirement 1: export carries real content ───────────────────────────────
 
+
 def test_export_contains_real_content(tmp_storage: Storage) -> None:
     """kb_sync_export must serialize real document content, not summaries."""
     tmp_storage.bulk_insert_raw("core", "README.md", "real content here", "Readme")
@@ -113,13 +105,13 @@ def test_export_contains_real_content(tmp_storage: Storage) -> None:
 
 # ── Requirement 2: round-trip reconstructs content/title ─────────────────────
 
+
 def test_roundtrip_restores_content(tmp_storage: Storage) -> None:
     """After clear + import, every exported doc is findable with same content/title."""
     tmp_storage.bulk_insert_raw("lib", "doc.md", "unique alpha content", "Alpha")
     tmp_storage.bulk_insert_raw("lib", "doc2.md", "beta body text here", "Beta")
 
     exported = _export_chunk_data(tmp_storage)
-    originals = {r["file_path"]: (r["content"], r["title"]) for r in exported}
 
     fresh, syncer = _fresh_import_target(tmp_storage, "rt")
     try:
@@ -140,6 +132,7 @@ def test_roundtrip_restores_content(tmp_storage: Storage) -> None:
 
 
 # ── Requirement 3: idempotent import ────────────────────────────────────────
+
 
 def test_idempotent_import(tmp_storage: Storage) -> None:
     """Importing the same chunk twice must not increase the document count.
@@ -163,12 +156,8 @@ def test_idempotent_import(tmp_storage: Storage) -> None:
 
         # In-run dedup: the duplicated entry must have been skipped.
         assert first["chunks_imported"] == len(exported), first
-        assert first["chunks_skipped"] == 1, (
-            f"duplicate manifest entry should be skipped, got chunks_skipped={first['chunks_skipped']}"
-        )
-        assert first_count == len(exported), (
-            f"document count should equal number of unique chunks, got {first_count}"
-        )
+        assert first["chunks_skipped"] == 1, f"duplicate manifest entry should be skipped, got chunks_skipped={first['chunks_skipped']}"
+        assert first_count == len(exported), f"document count should equal number of unique chunks, got {first_count}"
 
         # Across-call dedup: re-importing the same manifest for the same storage
         # must skip every chunk (chunks_skipped == len(manifest entries)).
@@ -178,14 +167,13 @@ def test_idempotent_import(tmp_storage: Storage) -> None:
         assert second["chunks_skipped"] == len(entries), (
             f"re-import should skip all {len(entries)} chunks, got chunks_skipped={second['chunks_skipped']}"
         )
-        assert second_count == first_count, (
-            f"count must not grow on re-import: {second_count} != {first_count}"
-        )
+        assert second_count == first_count, f"count must not grow on re-import: {second_count} != {first_count}"
     finally:
         target.close()
 
 
 # ── Requirement 4: empty rows rejected ──────────────────────────────────────
+
 
 def test_empty_row_rejected(tmp_storage: Storage) -> None:
     """A chunk row with empty file_path/content/title must not create a searchable doc."""
@@ -195,7 +183,7 @@ def test_empty_row_rejected(tmp_storage: Storage) -> None:
     _write_manifest(syncer, [_make_chunk(syncer, good), _make_chunk(syncer, junk)])
 
     try:
-        res = syncer.import_chunks(tmp_storage)
+        syncer.import_chunks(tmp_storage)
         count = _count(tmp_storage)
 
         # junk row must NOT become a searchable empty doc

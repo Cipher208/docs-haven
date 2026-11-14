@@ -10,12 +10,7 @@ Checks:
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-
-import pytest
-
-from result import Err, Ok
+from result import Ok
 from storage import Storage
 
 
@@ -29,6 +24,7 @@ def _search(storage: Storage, query: str, collection: str | None = None) -> list
 
 
 # ── 1. search result path is fetchable by get ────────────────────────────────
+
 
 def test_search_result_fetchable_by_get(tmp_storage: Storage) -> None:
     """A document returned by search must be retrievable by get using its
@@ -45,6 +41,7 @@ def test_search_result_fetchable_by_get(tmp_storage: Storage) -> None:
 
 
 # ── 2. FTS highlight shows content, not collection ───────────────────────────
+
 
 def test_fts_highlight_shows_content_not_collection(tmp_storage: Storage) -> None:
     """FTS snippet must come from the content column, not the collection column.
@@ -67,9 +64,8 @@ def test_fts_highlight_shows_content_not_collection(tmp_storage: Storage) -> Non
 
     highlighted = results[0].get("highlighted", "")
     # The unique body word must appear in the highlight (snippet from content).
-    assert "fox" in highlighted.lower(), (
-        f"snippet should contain body word 'fox'; highlighted={highlighted!r}; "
-        "collection={}".format(results[0].get("collection"))
+    assert "fox" in highlighted.lower(), f"snippet should contain body word 'fox'; highlighted={highlighted!r}; collection={{}}".format(
+        results[0].get("collection")
     )
     # The collection name must NOT dominate the highlight on a content search.
     # (It may appear incidentally if the body repeats it, which is fine; the key
@@ -78,6 +74,7 @@ def test_fts_highlight_shows_content_not_collection(tmp_storage: Storage) -> Non
 
 
 # ── 3. delete scoped to one collection does not touch another ────────────────
+
 
 def test_delete_scoped_to_collection(tmp_storage: Storage) -> None:
     """Deleting a document by (collection, file_path) must remove it only from
@@ -102,6 +99,7 @@ def test_delete_scoped_to_collection(tmp_storage: Storage) -> None:
 
 # ── 4. rename persists and search reflects it ────────────────────────────────
 
+
 def test_rename_reflects_in_search(tmp_storage: Storage) -> None:
     """After renaming a collection, document search scoped to the new name must
     still return the collection's documents (rename must propagate to FTS via
@@ -122,6 +120,7 @@ def test_rename_reflects_in_search(tmp_storage: Storage) -> None:
 
 # ── 5. no cross-collection false match ──────────────────────────────────────
 
+
 def test_search_scoped_excludes_other_collections(tmp_storage: Storage) -> None:
     """A search scoped to one collection must not return documents from another
     collection, even when they share the same file_path or content."""
@@ -131,6 +130,4 @@ def test_search_scoped_excludes_other_collections(tmp_storage: Storage) -> None:
     results = _search(tmp_storage, "shared", collection="c1")
     collections_seen = {r["collection"] for r in results}
 
-    assert collections_seen == {"c1"}, (
-        f"search scoped to c1 returned docs from {collections_seen}"
-    )
+    assert collections_seen == {"c1"}, f"search scoped to c1 returned docs from {collections_seen}"

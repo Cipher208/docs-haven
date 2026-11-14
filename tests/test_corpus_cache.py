@@ -18,9 +18,14 @@ Covered:
   documented limitation, FUTURE_PLAN N4)
 - cache rebuilt after invalidation returns fresh data: a content edit is
   reflected in similarity scores
+- BH-9: an invalidation landing DURING a rebuild discards the in-flight
+  snapshot (deterministic interleaving, fail-before) plus a bounded
+  barrier-synchronized threads smoke test
 """
 
 from __future__ import annotations
+
+import threading
 
 from storage import Storage
 from sync import Syncer
@@ -204,3 +209,78 @@ def test_cache_rebuild_reflects_content_edit_in_scores(tmp_storage: Storage) -> 
     fresh_similarity = second["related"][0]["relation"]["content_similarity"]
     assert fresh_similarity > baseline_similarity
     assert second["related"][0]["score"] > first["related"][0]["score"]
+
+
+# ── BH-9: thread-safety — an invalidation racing a lazy rebuild ──────────────
+
+
+def test_invalidation_during_rebuild_ends_fresh(tmp_storage: Storage, monkeypatch) -> None:
+    """BH-9 deterministic interleaving: a mutation's invalidation lands DURING
+    the lazy rebuild (mid-_load_documents). The in-flight snapshot must be
+    discarded — the cache ends up fresh (or None), never the stale pre-mutation
+    epoch, and the rebuild re-loads.
+
+    Fail-before (unguarded variant): _cached_documents stores the pre-mutation
+    snapshot after the invalidation already ran -> the cache serves a stale
+    epoch and only one load happens.
+    """
+    _seed_source_and_related(tmp_storage)
+    original = tmp_storage._load_documents
+    loads: list = []
+
+    def racing_load(collection: str | None = None) -> list[dict]:
+        data = original(collection)
+        loads.append(collection)
+        if len(loads) == 1:
+            # a concurrent mutation + invalidation lands mid-rebuild
+            tmp_storage.bulk_insert_raw("guide", "late.md", "Late mutation content", "Late").unwrap()
+        return data
+
+    monkeypatch.setattr(tmp_storage, "_load_documents", racing_load)
+
+    docs = tmp_storage._cached_documents()
+
+    assert len(loads) == 2, f"stale snapshot must not be cached — a reload was expected, got loads={loads}"
+    assert any(d["file_path"] == "late.md" for d in docs), f"rebuild returned a stale epoch: {docs}"
+    cache = tmp_storage._corpus_cache
+    assert cache is None or any(d["file_path"] == "late.md" for d in cache), f"cache ended up stale: {cache}"
+
+
+def test_concurrent_access_smoke_no_stale_epoch(tmp_storage: Storage) -> None:
+    """BH-9 smoke: barrier-synchronized reader + mutator threads. After both
+    join, no stale read is served — the corpus reflects every mutation.
+
+    Bounded (10s barrier/join timeouts) and deterministic post-fix. The race
+    window makes fail-before timing-dependent, which is why the deterministic
+    interleaving anchor above is the fail-before gate.
+    """
+    _seed_source_and_related(tmp_storage)
+    barrier = threading.Barrier(2, timeout=10)
+    mutations = ["m0.md", "m1.md", "m2.md"]
+
+    def mutator() -> None:
+        try:
+            barrier.wait()
+            for path in mutations:
+                tmp_storage.bulk_insert_raw("guide", path, f"mutation body {path}", path).unwrap()
+        finally:
+            tmp_storage.close()  # closes this thread's thread-local connection (Windows file lock)
+
+    def reader() -> None:
+        try:
+            barrier.wait()
+            for _ in range(3):
+                tmp_storage.find_related("guide", "src.md").unwrap()
+        finally:
+            tmp_storage.close()  # closes this thread's thread-local connection (Windows file lock)
+
+    threads = [threading.Thread(target=mutator), threading.Thread(target=reader)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert all(not t.is_alive() for t in threads), "worker threads must finish (bounded)"
+
+    docs = tmp_storage._cached_documents()
+    for path in mutations:
+        assert any(d["file_path"] == path for d in docs), f"stale epoch served after join: missing {path}"

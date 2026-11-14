@@ -132,6 +132,7 @@ class VectorIndex:
                     {
                         "path": doc["path"],
                         "collection": doc["collection"],
+                        "chunk": doc["chunk"],
                         "title": doc["title"],
                         "content": doc["content_preview"],
                         "score": round(score, 4),

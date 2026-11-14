@@ -23,19 +23,14 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
-from pathlib import Path
 
-import pytest
-
-from sync import Syncer
 from storage import Storage
+from sync import Syncer
 
 
 def _write_manifest(syncer: Syncer, entries: list[dict]) -> None:
     syncer._ensure_dirs()
-    syncer.manifest_path.write_text(
-        json.dumps({"version": 1, "chunks": entries})
-    )
+    syncer.manifest_path.write_text(json.dumps({"version": 1, "chunks": entries}))
 
 
 def _make_chunk(syncer: Syncer, rec: dict) -> dict:
@@ -45,9 +40,7 @@ def _make_chunk(syncer: Syncer, rec: dict) -> dict:
     }
     chunk_json = json.dumps(chunk, ensure_ascii=False).encode()
     chunk_id = hashlib.sha256(chunk_json).hexdigest()[:16]
-    (syncer.chunks_dir / f"{chunk_id}.json.gz").write_bytes(
-        gzip.compress(chunk_json)
-    )
+    (syncer.chunks_dir / f"{chunk_id}.json.gz").write_bytes(gzip.compress(chunk_json))
     return {
         "id": chunk_id,
         "created_by": "test",
@@ -58,6 +51,7 @@ def _make_chunk(syncer: Syncer, rec: dict) -> dict:
 
 
 # ── Guard corner case: file_path collision must NOT skip the wrong chunk ─────
+
 
 def test_path_collision_does_not_skip_needed_chunk(tmp_storage: Storage) -> None:
     """A file_path that coincidentally contains a chunk id as substring must not
@@ -73,12 +67,6 @@ def test_path_collision_does_not_skip_needed_chunk(tmp_storage: Storage) -> None
     import random
 
     hex16 = "".join(random.choice("0123456789abcdef") for _ in range(16))
-    decoy = {
-        "collection": "c",
-        "file_path": f"/tmp/{hex16}/note.md",  # file_path CONTAINS hex16
-        "title": "Decoy",
-        "content": "decoy body",
-    }
     # The "real" chunk record we actually want to import must have an id
     # EQUAL to hex16. We construct it by brute-forcing content until the
     # SHA-256[:16] of its chunk payload equals hex16 (rare, but we only need
@@ -124,20 +112,25 @@ def test_path_collision_does_not_skip_needed_chunk(tmp_storage: Storage) -> None
     # 3. IMPORT — the current guard checks count_documents_by_path(f"%{hex16}%")
     #    which matches the decoy doc (file_path contains hex16), so it SKIPS the
     #    real chunk. After import, "important.md" must still be missing.
-    before = tmp_storage._get_conn().execute(
-        "SELECT COUNT(*) FROM documents WHERE collection = ? AND file_path = ?",
-        ("c", "important.md"),
-    ).fetchone()[0]
+    before = (
+        tmp_storage._get_conn()
+        .execute(
+            "SELECT COUNT(*) FROM documents WHERE collection = ? AND file_path = ?",
+            ("c", "important.md"),
+        )
+        .fetchone()[0]
+    )
 
     res = syncer.import_chunks(tmp_storage)
 
-    after = tmp_storage._get_conn().execute(
-        "SELECT COUNT(*) FROM documents WHERE collection = ? AND file_path = ?",
-        ("c", "important.md"),
-    ).fetchone()[0]
+    after = (
+        tmp_storage._get_conn()
+        .execute(
+            "SELECT COUNT(*) FROM documents WHERE collection = ? AND file_path = ?",
+            ("c", "important.md"),
+        )
+        .fetchone()[0]
+    )
 
     # Correct behavior: the needed chunk must be imported despite the collision.
-    assert after > before, (
-        "needed chunk was skipped due to file_path collision with guard; "
-        f"before={before} after={after}; guard result={res}"
-    )
+    assert after > before, f"needed chunk was skipped due to file_path collision with guard; before={before} after={after}; guard result={res}"

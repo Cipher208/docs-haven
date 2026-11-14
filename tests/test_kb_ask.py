@@ -168,6 +168,8 @@ async def test_kb_ask_context_parameter_boosts(ask_storage: Storage) -> None:
     with patch("server._get_storage", return_value=ask_storage):
         from server import kb_ask
 
-        result = await kb_ask("how to use Depends with parameters in FastAPI?", context=["other"], explain=True, ctx=_FakeCtx(_FakeSession(text=CANNED_ANSWER)))
+        result = await kb_ask(
+            "how to use Depends with parameters in FastAPI?", context=["other"], explain=True, ctx=_FakeCtx(_FakeSession(text=CANNED_ANSWER))
+        )
     by_coll = {c["collection"]: c for c in result["chunks"]}
     assert by_coll["other"]["explain"]["context_boost"] == pytest.approx(0.1), by_coll["other"]["explain"]

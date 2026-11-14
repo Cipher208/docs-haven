@@ -159,9 +159,10 @@ LLM summary from found chunks with citations.
   remove/rename collection, reindex, sync import); SQLite stays the single
   source of truth. Resident memory is still O(corpus) — fine for local
   libraries — and invalidation is instance-scoped (a second Storage over the
-  same data dir serves its own cache until its own rebuild). Not
-  thread-guarded: a lazy rebuild racing a concurrent mutation can serve one
-  stale epoch, healed by the next mutation. Indexing at scale remains the
+  same data dir serves its own cache until its own rebuild). Rebuilds are
+  lock-guarded (BH-9): the lazy rebuild region and invalidation share one
+  lock, and an invalidation racing a rebuild wins (the in-flight snapshot is
+  discarded), so no stale epoch is served. Indexing at scale remains the
   future step.
 - **N5 — hard term cap in related lookup.** `_related_source_terms` keeps at
   most 512 unique terms (title first); in documents with more than ~511 unique

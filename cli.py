@@ -191,9 +191,7 @@ def cmd_delete(args: argparse.Namespace) -> None:
 
     if "/" in file_path:
         collection, path = file_path.split("/", 1)
-        result = _unwrap_or_exit(
-            storage.delete_documents_scoped(path, collection), "delete"
-        )
+        result = _unwrap_or_exit(storage.delete_documents_scoped(path, collection), "delete")
         print(f"Deleted: {collection}/{result['file_path']}")
     else:
         result = _unwrap_or_exit(storage.delete_document(file_path), "delete")
@@ -215,13 +213,12 @@ def cmd_get(args: argparse.Namespace) -> None:
 
     if "/" in file_path:
         collection, path = file_path.split("/", 1)
-        result = _unwrap_or_exit(
-            storage.get(path, collection=collection), "get"
-        )
+        result = _unwrap_or_exit(storage.get(path, collection=collection), "get")
     else:
         result = _unwrap_or_exit(storage.get(file_path), "get")
 
     print(f"Content:\n{result['content']}")
+
 
 def cmd_context(args: argparse.Namespace) -> None:
     """Context attachment management."""

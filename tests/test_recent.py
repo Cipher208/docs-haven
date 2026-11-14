@@ -115,6 +115,20 @@ async def test_track_doc_accesses_ignores_malformed_rows(tmp_storage: Storage) -
     assert result["documents"][0]["chunk_index"] == 0  # real DB row value
 
 
+def test_track_doc_accesses_non_int_chunk_logged_as_none(tmp_storage: Storage) -> None:
+    """BH-7 lenient mode: the access-log resolver records a malformed chunk as
+    'no chunk' (None) — it never coerces it to 0 like resolve_chunk does."""
+    tmp_storage.bulk_insert_raw("guide", "a.md", "Doc A about FastAPI", "A")
+    tmp_storage._track_doc_accesses(
+        [
+            {"collection": "guide", "file_path": "a.md", "chunk": "not-int"},
+            {"collection": "guide", "file_path": "a.md", "chunk": 3},
+        ]
+    )
+    assert tmp_storage._recent_docs[0]["chunk_index"] == 3  # int chunk passes through
+    assert tmp_storage._recent_docs[1]["chunk_index"] is None  # non-int -> None, not 0
+
+
 # ── documented fallback: retrieval_count DESC, updated_at DESC ──────────────
 
 

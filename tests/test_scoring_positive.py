@@ -6,8 +6,6 @@ retrieval_count/created_at are not selected in FTS/LIKE queries) and PASS after 
 
 from __future__ import annotations
 
-import pytest
-
 from storage import Storage
 
 
@@ -81,7 +79,11 @@ def test_min_score_filters(tmp_storage: Storage) -> None:
     # Второй поиск: retrieval_count уже 1 → score ~ 0.7575, min_score 0.77 фильтрует.
     result = storage.search("shared", collections=["c"], limit=10, min_score=0.77)
     assert result.is_ok, result
-    assert len(result.value) == 0, f"expected 0 docs with min_score=0.77, got {len(result.value)}: {[(d['path'], round(d.get('score'), 4)) for d in result.value]}"
+    # fmt: skip keeps this message on one line: ruff format's wrap would split
+    # the three result.value accesses across lines and un-deduplicate mypy's
+    # report of the same pre-existing union-attr finding (BH-6: mypy content
+    # must stay identical to HEAD).
+    assert len(result.value) == 0, f"expected 0 docs with min_score=0.77, got {len(result.value)}: {[(d['path'], round(d.get('score'), 4)) for d in result.value]}"  # fmt: skip
 
 
 def test_importance_boost_reflected(tmp_storage: Storage) -> None:
@@ -105,4 +107,6 @@ def test_importance_boost_reflected(tmp_storage: Storage) -> None:
 
     importance_x = doc_x["explain"]["importance_boost"]
     importance_y = doc_y["explain"]["importance_boost"]
-    assert importance_x > importance_y, f"importance_x={importance_x} <= importance_y={importance_y} (explain_x={doc_x['explain']}, explain_y={doc_y['explain']})"
+    assert importance_x > importance_y, (
+        f"importance_x={importance_x} <= importance_y={importance_y} (explain_x={doc_x['explain']}, explain_y={doc_y['explain']})"
+    )

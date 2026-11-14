@@ -28,6 +28,20 @@ QUESTION = "how to use auth autoscaling kubernetes?"
 # ── corpus ───────────────────────────────────────────────────────────────────
 
 
+def _insert_two_chunks(storage: Storage) -> None:
+    """One document, two chunks: only chunk 1 shares tokens with the BH-7 query."""
+    conn = storage._get_conn()
+    conn.execute(
+        "INSERT INTO documents (collection, file_path, content, title, chunk_index, total_chunks) VALUES (?, ?, ?, ?, ?, ?)",
+        ("sec", "big.md", "plain alpha bravo common", "Big", 0, 2),
+    )
+    conn.execute(
+        "INSERT INTO documents (collection, file_path, content, title, chunk_index, total_chunks) VALUES (?, ?, ?, ?, ?, ?)",
+        ("sec", "big.md", "quixotic zeppelin xylophone tune", "Big", 1, 2),
+    )
+    conn.commit()
+
+
 @pytest.fixture
 def mixed_storage(tmp_storage: Storage):
     """Doc guide.md matches 'auth' ONLY through the expansion dictionary
@@ -105,6 +119,66 @@ def test_resolve_chunk_well_formed_row_unchanged() -> None:
         "content": "auth notes",
         "score": 0.9,
     }
+
+
+# ── BH-7: shared resolver, per-caller chunk tolerance ─────────────────────────
+
+
+def test_resolve_chunk_non_int_chunk_maps_to_zero() -> None:
+    """BH-7 strict mode: resolve_chunk maps a malformed chunk to 0 (kb_ask chunk
+    dicts always carry an int index; the missing/malformed case degrades to 0)."""
+    for bad in ("not-int", None, 1.5, True):
+        row = {"path": "sec/guide.md", "chunk": bad, "title": "T", "content": "C", "score": 0.5}
+        chunk = resolve_chunk(row)
+        assert chunk is not None
+        assert chunk["chunk_index"] == 0, f"chunk={bad!r} must degrade to 0"
+    # absent chunk falls back to the default 0
+    no_chunk = resolve_chunk({"path": "sec/guide.md"})
+    assert no_chunk is not None
+    assert no_chunk["chunk_index"] == 0
+
+
+def test_resolve_chunk_chunk_index_fallback_unchanged() -> None:
+    """BH-7: a row with only a chunk_index key still resolves to that index
+    (the pre-BH-7 fallback chain is preserved by the shared resolver)."""
+    row = {"path": "sec/guide.md", "chunk_index": 2}
+    chunk = resolve_chunk(row)
+    assert chunk is not None
+    assert chunk["chunk_index"] == 2
+
+
+def test_vector_hit_reports_chunk_index_through_resolve_chunk(tmp_storage: Storage) -> None:
+    """BH-7: a vector hit on chunk 1 must report chunk_index 1 through the same
+    resolver kb_ask uses. Pre-BH-7 vector rows dropped the chunk index, so every
+    content-similarity citation pointed at chunk 0."""
+    from vector import VectorIndex
+
+    _insert_two_chunks(tmp_storage)
+    rows = VectorIndex(tmp_storage).search("quixotic zeppelin xylophone", limit=5)
+    hit = next((r for r in rows if "quixotic" in r.get("content", "")), None)
+    assert hit is not None, f"vector search did not return the chunk-1 row: {rows}"
+    chunk = resolve_chunk(hit)
+    assert chunk is not None
+    assert chunk["chunk_index"] == 1, f"vector hit on chunk 1 must resolve to 1: {chunk}"
+
+
+async def test_kb_ask_vector_hit_cites_chunk_index(tmp_storage: Storage) -> None:
+    """BH-7 end-to-end: kb_ask citations carry the real chunk index of a vector hit."""
+    from unittest.mock import patch
+
+    from server import kb_ask
+
+    class _NoHost:
+        async def create_message(self, *args, **kwargs):  # pragma: no cover - host degraded
+            raise AssertionError("host not expected in this anchor")
+
+    _insert_two_chunks(tmp_storage)
+    with patch("server._get_storage", return_value=tmp_storage), patch("storage.auto_strategy", return_value="vector"):
+        result = await kb_ask("explain quixotic zeppelin xylophone", ctx=_NoHost())
+    assert "error" not in result, result
+    cited = [c for c in result["citations"] if c["file_path"] == "big.md"]
+    assert cited, result["citations"]
+    assert max(c["chunk_index"] for c in cited) == 1, f"vector hit on chunk 1 must cite chunk 1: {result['citations']}"
 
 
 # ── kb_ask regression guard: canonical shape unchanged ───────────────────────

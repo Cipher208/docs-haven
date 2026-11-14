@@ -17,12 +17,9 @@ from __future__ import annotations
 import io
 import sys
 
-import pytest
-
-from storage import Storage
-
 # The cli module uses a module-global _storage singleton. We swap it per test.
 import cli as _cli
+from storage import Storage
 
 
 def _reset_cli_storage() -> None:
@@ -43,6 +40,7 @@ def _capture_stdout() -> tuple[io.StringIO, list[str]]:
     sys.stdout = buf
     return buf, [old]
 
+
 def _restore_stdout(buf_and_old: tuple[io.StringIO, list[str]]) -> str:
     buf, old = buf_and_old
     sys.stdout = old[0]
@@ -59,9 +57,9 @@ def test_cli_get_by_prefixed_path(tmp_storage: Storage) -> None:
 
     _insert(tmp_storage, "proj", "notes/alpha.md", "alpha body text here", "Alpha")
 
-    from cli import cmd_get  # noqa: F811
-
     import argparse
+
+    from cli import cmd_get  # noqa: F811
 
     args = argparse.Namespace(file_path="proj/notes/alpha.md")
     buf_and_old = _capture_stdout()
@@ -79,9 +77,9 @@ def test_cli_get_missing_path_exits(tmp_storage: Storage) -> None:
     _reset_cli_storage()
     _set_cli_storage(tmp_storage)
 
-    from cli import cmd_get  # noqa: F811
-
     import argparse
+
+    from cli import cmd_get  # noqa: F811
 
     args = argparse.Namespace(file_path="proj/nope.md")
     buf_and_old = _capture_stdout()
@@ -109,9 +107,9 @@ def test_cli_delete_by_prefixed_path_is_scoped(tmp_storage: Storage) -> None:
     _insert(tmp_storage, "a", "same.md", "in A", "A")
     _insert(tmp_storage, "b", "same.md", "in B", "B")
 
-    from cli import cmd_delete  # noqa: F811
-
     import argparse
+
+    from cli import cmd_delete  # noqa: F811
 
     args = argparse.Namespace(file_path="a/same.md")
     buf_and_old = _capture_stdout()
@@ -122,17 +120,25 @@ def test_cli_delete_by_prefixed_path_is_scoped(tmp_storage: Storage) -> None:
         _reset_cli_storage()
 
     # document in a must be gone
-    like_a = tmp_storage._get_conn().execute(
-        "SELECT COUNT(*) FROM documents WHERE collection = ? AND file_path = ?",
-        ("a", "same.md"),
-    ).fetchone()[0]
+    like_a = (
+        tmp_storage._get_conn()
+        .execute(
+            "SELECT COUNT(*) FROM documents WHERE collection = ? AND file_path = ?",
+            ("a", "same.md"),
+        )
+        .fetchone()[0]
+    )
     assert like_a == 0, "document in a should have been removed"
 
     # document in b must remain
-    like_b = tmp_storage._get_conn().execute(
-        "SELECT COUNT(*) FROM documents WHERE collection = ? AND file_path = ?",
-        ("b", "same.md"),
-    ).fetchone()[0]
+    like_b = (
+        tmp_storage._get_conn()
+        .execute(
+            "SELECT COUNT(*) FROM documents WHERE collection = ? AND file_path = ?",
+            ("b", "same.md"),
+        )
+        .fetchone()[0]
+    )
     assert like_b == 1, "document in b must remain untouched"
 
 
@@ -144,9 +150,9 @@ def test_cli_delete_plain_path_is_ambiguous_and_guarded(tmp_storage: Storage) ->
 
     _insert(tmp_storage, "x", "shared.md", "in X", "X")
 
-    from cli import cmd_delete  # noqa: F811
-
     import argparse
+
+    from cli import cmd_delete  # noqa: F811
 
     args = argparse.Namespace(file_path="x/shared.md")
     buf_and_old = _capture_stdout()
@@ -157,8 +163,12 @@ def test_cli_delete_plain_path_is_ambiguous_and_guarded(tmp_storage: Storage) ->
         _reset_cli_storage()
 
     # The scoped delete must have removed the document in x.
-    cnt = tmp_storage._get_conn().execute(
-        "SELECT COUNT(*) FROM documents WHERE collection = ? AND file_path = ?",
-        ("x", "shared.md"),
-    ).fetchone()[0]
+    cnt = (
+        tmp_storage._get_conn()
+        .execute(
+            "SELECT COUNT(*) FROM documents WHERE collection = ? AND file_path = ?",
+            ("x", "shared.md"),
+        )
+        .fetchone()[0]
+    )
     assert cnt == 0, "document in x should be gone after prefixed delete"
