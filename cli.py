@@ -179,8 +179,9 @@ def cmd_delete(args: argparse.Namespace) -> None:
     """Delete a document.
 
     Accepts a prefixed path ``collection/file_path`` (scoped delete) or a plain
-    ``file_path`` (legacy behavior: deletes matching file_paths across all
-    collections — ambiguous, use scoped form when possible).
+    ``file_path``. A plain path is deleted only when unambiguous (exactly one
+    collection holds it); a path shared by several collections errors and
+    deletes nothing — use the scoped form to name the collection.
     """
     storage = get_storage()
     file_path = args.file_path

@@ -282,26 +282,38 @@ async def kb_get(file_path: str) -> dict:
 
 
 @mcp.tool()
-async def kb_update(file_path: str, content: str, title: str | None = None) -> dict:
+async def kb_update(file_path: str, content: str, title: str | None = None, collection: str | None = None) -> dict:
     """Update an existing document's content.
+
+    Metadata not passed (title, context, created_at, retrieval_count) is preserved.
+    Updates are scoped: when collection is given only that document is updated;
+    when omitted the path must exist in exactly one collection, otherwise an
+    error is returned. An update never creates a document and never touches a
+    same-named file in another collection.
 
     Args:
         file_path: Document path to update
         content: New content for the document
-        title: Optional new title
+        title: Optional new title (otherwise the existing title is preserved)
+        collection: Optional collection scope (required when the path is ambiguous)
     """
     if _is_unsafe_path(file_path):
         return {"error": _ERR_INVALID_PATH}
     if len(content) > 10_000_000:  # 10MB limit
         return {"error": "Content too large (max 10MB)"}
     storage = _get_storage()
-    result = storage.update_document(file_path, content, title)
+    result = storage.update_document(file_path, content, title, collection=collection)
     return _unwrap(result)
 
 
 @mcp.tool()
 async def kb_delete(file_path: str, collection: str | None = None) -> dict:
     """Delete a document from the knowledge base.
+
+    Deletion is scoped and never mass-deletes: with collection only that
+    document is removed. Without it, the delete proceeds only when the path
+    exists in exactly one collection (unambiguous delete); a path shared by
+    several collections returns an error and deletes nothing.
 
     Args:
         file_path: Document path to delete

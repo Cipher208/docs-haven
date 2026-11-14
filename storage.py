@@ -907,46 +907,127 @@ class Storage:
             logger.debug("Get failed: %s", e)
             return Err(error=str(e))
 
-    def update_document(self, file_path: str, content: str, title: str | None = None) -> Ok[dict] | Err:
+    def _collections_for_path(self, conn: sqlite3.Connection, file_path: str) -> list[str]:
+        """Collections holding file_path, for scope resolution of unscoped calls."""
+        rows = conn.execute(
+            "SELECT DISTINCT collection FROM documents WHERE file_path = ? ORDER BY collection",
+            (file_path,),
+        ).fetchall()
+        return [r["collection"] for r in rows]
+
+    def update_document(
+        self,
+        file_path: str,
+        content: str,
+        title: str | None = None,
+        collection: str | None = None,
+        context: str | None = None,
+    ) -> Ok[dict] | Err:
+        """Replace a document's content in place, scoped to a single collection.
+
+        Scoping: when *collection* is given, only that (collection, file_path)
+        document is updated. When it is omitted, the call is resolved against the
+        collections holding *file_path*: exactly one match is updated, and Err is
+        returned when the path is ambiguous (exists in 2+ collections) or missing.
+        An update never creates a document and never touches a same-named file in
+        another collection.
+
+        Metadata preservation: fields the caller does not pass survive the update —
+        title, context, created_at, retrieval_count and extension are carried over
+        from the existing rows. content_hash, chunking and total_chunks are
+        recomputed from the new content, and updated_at is refreshed. Passing
+        *title* or *context* overrides just that field.
+        """
         conn = self._get_conn()
         try:
-            # Read existing data before deletion
-            existing = conn.execute(
-                "SELECT collection, title, extension FROM documents WHERE file_path = ? AND chunk_index = 0",
-                (file_path,),
-            ).fetchone()
-            collection = existing["collection"] if existing else ""
-            original_title = existing["title"] if existing else ""
-            extension = existing["extension"] if existing else Path(file_path).suffix
+            if collection is None:
+                collections = self._collections_for_path(conn, file_path)
+                if len(collections) > 1:
+                    return Err(
+                        error=(
+                            f"collection required: '{file_path}' exists in {len(collections)} collections "
+                            f"({', '.join(collections)}); pass collection to scope the update"
+                        )
+                    )
+                if not collections:
+                    return Err(error=f"Document not found: {file_path}")
+                collection = collections[0]
 
-            # Delete all existing chunks
-            conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
+            rows = conn.execute(
+                "SELECT title, context, extension, created_at, retrieval_count FROM documents "
+                "WHERE collection = ? AND file_path = ? ORDER BY chunk_index",
+                (collection, file_path),
+            ).fetchall()
+            if not rows:
+                return Err(error=f"Document not found: {collection}/{file_path}")
+            first = rows[0]
+            final_title = title if title is not None else first["title"]
+            final_context = context if context is not None else first["context"]
+            extension = first["extension"] or Path(file_path).suffix
+            created_at = min((r["created_at"] for r in rows if r["created_at"]), default=None)
+            retrieval_count = max(r["retrieval_count"] or 0 for r in rows)
 
-            # Re-chunk the content
+            # Re-chunk the content and replace the scoped rows only
             chunks = auto_chunk(content)
             content_hash = self._compute_file_hash(content)
-            final_title = title if title is not None else original_title
 
-            # Re-insert chunks
+            conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, file_path))
             for i, chunk in enumerate(chunks):
                 conn.execute(
-                    """INSERT OR REPLACE INTO documents
-                    (collection, file_path, content, content_hash, extension, title, chunk_index, total_chunks)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (collection, file_path, chunk, content_hash, extension, final_title, i, len(chunks)),
+                    """INSERT INTO documents
+                    (collection, file_path, content, content_hash, extension, title, context,
+                     chunk_index, total_chunks, retrieval_count, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    (
+                        collection,
+                        file_path,
+                        chunk,
+                        content_hash,
+                        extension,
+                        final_title,
+                        final_context,
+                        i,
+                        len(chunks),
+                        retrieval_count,
+                        created_at,
+                    ),
                 )
             conn.commit()
-            return Ok(value={"status": "updated", "file_path": file_path, "chunks": len(chunks)})
+            return Ok(value={"status": "updated", "file_path": file_path, "collection": collection, "chunks": len(chunks)})
         except sqlite3.Error as e:
             logger.debug("Update failed: %s", e)
             return Err(error=str(e))
 
-    def delete_document(self, file_path: str) -> Ok[dict] | Err:
+    def delete_document(self, file_path: str, collection: str | None = None) -> Ok[dict] | Err:
+        """Delete a document, scoped to a single collection — never mass-deletes.
+
+        Scoping policy (backward-compat decision): deletion is scoped — it never
+        removes *file_path* from more than one collection. When *collection* is
+        given, only that collection's document is removed (idempotent Ok when
+        nothing matched). When it is omitted, the call is resolved against the
+        collections holding *file_path*: exactly one match is deleted
+        (unambiguous delete allowed), 2+ matches return Err("collection required")
+        with NOTHING deleted, and a path matching nothing is an idempotent Ok
+        no-op. Callers that can pass a collection (MCP kb_delete, CLI prefixed
+        path) should always do so.
+        """
         conn = self._get_conn()
         try:
-            conn.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
+            if collection is None:
+                collections = self._collections_for_path(conn, file_path)
+                if len(collections) > 1:
+                    return Err(
+                        error=(
+                            f"collection required: '{file_path}' exists in {len(collections)} collections "
+                            f"({', '.join(collections)}); pass collection to scope the delete"
+                        )
+                    )
+                if not collections:
+                    return Ok(value={"status": _ACTION_DELETED, "file_path": file_path, "collection": None})
+                collection = collections[0]
+            conn.execute("DELETE FROM documents WHERE file_path = ? AND collection = ?", (file_path, collection))
             conn.commit()
-            return Ok(value={"status": _ACTION_DELETED, "file_path": file_path})
+            return Ok(value={"status": _ACTION_DELETED, "file_path": file_path, "collection": collection})
         except sqlite3.Error as e:
             logger.debug("Delete failed: %s", e)
             return Err(error=str(e))
@@ -1011,16 +1092,7 @@ class Storage:
 
     def delete_documents_scoped(self, file_path: str, collection: str) -> Ok[dict] | Err:
         """Delete a document scoped to a specific collection."""
-        conn = self._get_conn()
-        try:
-            conn.execute(
-                "DELETE FROM documents WHERE file_path = ? AND collection = ?",
-                (file_path, collection),
-            )
-            conn.commit()
-            return Ok(value={"status": _ACTION_DELETED, "file_path": file_path, "collection": collection})
-        except sqlite3.Error as e:
-            return Err(error=str(e))
+        return self.delete_document(file_path, collection=collection)
 
     def bulk_insert(self, documents: list[dict]) -> Ok[int] | Err:
         conn = self._get_conn()
