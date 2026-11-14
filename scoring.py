@@ -22,6 +22,13 @@ W_COVERAGE = 0.6
 W_TITLE = 0.3
 W_PHRASE = 0.1
 
+# The phrase bonus scans title/content for the query terms joined as one phrase.
+# It only pays off for short queries (kb_search and kb_learn cap their term sets at
+# 24 via _query_terms); callers with large term sets (kb_related passes ALL unique
+# document terms) skip the scan — its substring can never match and would cost
+# O(content) per candidate.
+_PHRASE_SCAN_MAX_TERMS = 24
+
 _TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 _RESERVED = {"and", "or", "not", "near"}
 
@@ -50,6 +57,10 @@ def lexical_relevance(query_terms: list[str], title: str, content: str, bm25_sco
 
     query_terms must be pre-tokenized by _query_terms. bm25_score, if provided, is used only
     as a tiny tie-break so FTS ranking can still nudge identical-lexical results.
+
+    The phrase bonus is a substring scan and is bounded: term sets above
+    _PHRASE_SCAN_MAX_TERMS (e.g. kb_related's all-unique-terms source set) skip
+    it — coverage and title signals are phrase-independent.
     """
     qt = set(query_terms)
     if not qt:
@@ -63,11 +74,12 @@ def lexical_relevance(query_terms: list[str], title: str, content: str, bm25_sco
     title_cov = len(qt & title_tokens) / len(qt)
 
     phrase = 0.0
-    query_phrase = " ".join(query_terms)
-    if query_phrase and query_phrase in (title or "").casefold():
-        phrase = 1.0
-    elif query_phrase and query_phrase in (content or "").casefold():
-        phrase = 0.5
+    if len(query_terms) <= _PHRASE_SCAN_MAX_TERMS:
+        query_phrase = " ".join(query_terms)
+        if query_phrase and query_phrase in (title or "").casefold():
+            phrase = 1.0
+        elif query_phrase and query_phrase in (content or "").casefold():
+            phrase = 0.5
 
     base = W_COVERAGE * coverage + W_TITLE * title_cov + W_PHRASE * phrase
 

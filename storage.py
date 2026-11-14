@@ -18,17 +18,22 @@ import sqlite3
 import subprocess
 import threading
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 
 from chunking import _BINARY_SUFFIXES, auto_chunk, chunk_code, chunk_text  # noqa: F401
 from result import Err, Ok
-from scoring import _query_terms, importance_boost, lexical_relevance, type_boost  # noqa: F401
+from scoring import _query_terms, _token_set, importance_boost, lexical_relevance, type_boost  # noqa: F401
 from uri import VALID_DOMAINS as _VALID_DOMAINS
 from validation import (
     _MAX_SEARCH_LIMIT,
+    parse_since,
     validate_collection,
     validate_file_mask,
+    validate_limit,
     validate_query,
+    validate_since,
+    validate_topic,
     validate_url,
 )
 
@@ -44,6 +49,18 @@ _HYBRID_MULTIPLIER = 3
 # Context-aware search constants
 CONTEXT_BOOST = 0.1
 _RECENT_COLLECTIONS_MAX = 10
+
+# DH-3 session document-access log (kb_recent): in-memory, per Storage,
+# no schema migration — see FUTURE_PLAN P1 #6.
+_RECENT_DOCS_MAX = 50
+
+# DH-3 related-document scoring (kb_related): tag overlap + collection
+# proximity + content similarity. The schema has no tag column, so the "tag"
+# signal is title-term overlap (documented substitution).
+_RELATED_W_TAG = 0.4
+_RELATED_W_COLLECTION = 0.2
+_RELATED_W_CONTENT = 0.4
+_TAG_OVERLAP_SOURCE = "title_terms"
 
 # Query expansion constants
 _MAX_EXPANSION_TERMS = 24
@@ -147,6 +164,92 @@ def _collection_row_to_dict(row: sqlite3.Row, ctx_counts: dict) -> dict:
     }
 
 
+# DH-3 complexity rule (kb_learn): title markers win, else code-chunk ratio +
+# document length pick the band. Deterministic, no LLM calls.
+_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+_LEVEL_RANK = {"beginner": 0, "intermediate": 1, "advanced": 2}
+_BEGINNER_MARKERS = (
+    "intro",
+    "basics",
+    "beginner",
+    "getting started",
+    "quickstart",
+    "quick start",
+    "first steps",
+    "overview",
+    "primer",
+    "fundamentals",
+)
+_ADVANCED_MARKERS = ("advanced", "internals", "deep dive", "deep-dive", "architecture", "optimization", "optimisation", "performance", "reference")
+
+
+def _document_level(title: str, content: str) -> str:
+    """Deterministic complexity level for kb_learn: beginner / intermediate / advanced.
+
+    Grounding (the schema has no difficulty column):
+    1. Title markers win — "introduction/basics/..." -> beginner,
+       "internals/advanced/..." -> advanced.
+    2. Otherwise score = 0.6*min(1, code_ratio/0.3) + 0.4*min(1, length/1500)
+       where code_ratio is the share of the content inside ``` fences:
+       score < 0.35 beginner, < 0.7 intermediate, else advanced.
+    """
+    t = (title or "").casefold()
+    if any(m in t for m in _BEGINNER_MARKERS):
+        return "beginner"
+    if any(m in t for m in _ADVANCED_MARKERS):
+        return "advanced"
+    text = content or ""
+    code_len = sum(len(m.group(0)) for m in _CODE_FENCE_RE.finditer(text))
+    code_ratio = code_len / max(1, len(text))
+    score = 0.6 * min(1.0, code_ratio / 0.3) + 0.4 * min(1.0, len(text) / 1500)
+    if score < 0.35:
+        return "beginner"
+    if score < 0.7:
+        return "intermediate"
+    return "advanced"
+
+
+def _has_level_marker(title: str, level: str) -> bool:
+    """True when the title explicitly names the level (within-level ordering hint)."""
+    t = (title or "").casefold()
+    markers = _BEGINNER_MARKERS if level == "beginner" else _ADVANCED_MARKERS if level == "advanced" else ()
+    return any(m in t for m in markers)
+
+
+# kb_related compares whole documents, so the source term set is ALL unique
+# document terms, capped at this many unique terms (title terms preferred first).
+_RELATED_MAX_TERMS = 512
+
+
+def _related_source_terms(title: str, content: str) -> list[str]:
+    """Source term set for kb_related: title terms first, then ALL unique content terms.
+
+    Earlier revisions sampled 48 terms from head/middle/tail word-stream windows,
+    which left ~60% of document positions invisible (a subject at 20% or 70% of a
+    200-word document did not match) and was worse than the char-offset sampler
+    in the 33-40% and 66-75% bands. Positional sampling is gone: the budget is
+    the full unique term set — all unique content terms (whole words,
+    deduped by _query_terms) capped at _RELATED_MAX_TERMS, plus the title terms
+    which always come first. A document with more than 512 unique terms keeps
+    its first-512 in document order (title terms still included); 512 is the
+    spec for now — frequency-based selection was deliberately not added.
+
+    Cost: coverage/title scoring is O(terms) per candidate and negligible; the
+    phrase substring scan in lexical_relevance is skipped for term sets above
+    scoring._PHRASE_SCAN_MAX_TERMS, so the dominant per-call cost remains the
+    full corpus scan (FUTURE_PLAN P1 known limitation N4).
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for term in _query_terms(title or "", limit=_RELATED_MAX_TERMS) + _query_terms(content or "", limit=_RELATED_MAX_TERMS):
+        if term not in seen:
+            seen.add(term)
+            out.append(term)
+            if len(out) >= _RELATED_MAX_TERMS:
+                break
+    return out
+
+
 class Storage:
     """SQLite FTS5-backed document storage with smart search strategies.
 
@@ -173,6 +276,8 @@ class Storage:
         self.expansion_dictionary: dict[str, list[str]] = dict(DEFAULT_EXPANSIONS)
         # Session-scoped recency of accessed collections (most recent first)
         self._recent_collections: deque[str] = deque(maxlen=_RECENT_COLLECTIONS_MAX)
+        # Session-scoped document-access log for kb_recent (newest first)
+        self._recent_docs: deque[dict] = deque(maxlen=_RECENT_DOCS_MAX)
 
     def close(self) -> None:
         conn = getattr(self._local, "conn", None)
@@ -625,6 +730,7 @@ class Storage:
 
         self._track_retrieval(results, limit)
         self._track_recent(results[:limit])
+        self._track_doc_accesses(results[:limit])
 
         return Ok(value=results[:limit])
 
@@ -778,6 +884,7 @@ class Storage:
                 row = conn.execute(sql, params).fetchone()
                 if row:
                     self._track_recent([{"collection": row["collection"]}])
+                    self._track_doc_access(row["collection"], row["file_path"], row["chunk_index"])
                     return Ok(value=dict(row))
                 return Err(error=f"Document not found: {file_path}")
 
@@ -786,6 +893,7 @@ class Storage:
                 return Err(error=f"Document not found: {file_path}")
             content = "\n".join(r["content"] for r in rows)
             self._track_recent([{"collection": rows[0]["collection"]}])
+            self._track_doc_access(rows[0]["collection"], rows[0]["file_path"])
             return Ok(
                 value={
                     "file_path": rows[0]["file_path"],
@@ -1070,6 +1178,364 @@ class Storage:
         except sqlite3.Error as e:
             logger.debug("List documents failed: %s", e)
             return Err(error=str(e))
+
+    # ── DH-3: related / recent / learn (FUTURE_PLAN P1 #5-7) ───────────────────
+
+    def _track_doc_access(self, collection: str, file_path: str, chunk_index: int | None = None) -> None:
+        """Record a document access in the session log (newest first, no schema change)."""
+        self._recent_docs.appendleft(
+            {
+                "collection": collection,
+                "file_path": file_path,
+                "chunk_index": chunk_index,
+                "accessed_at": datetime.now(timezone.utc).replace(tzinfo=None),
+            }
+        )
+
+    def _track_doc_accesses(self, results: list[dict]) -> None:
+        """Record accessed documents from search-style result rows.
+
+        Rows may carry file_path (fts/like rows) or only a "collection/file_path"
+        path key (vector rows) — both resolve to the same access record.
+        Malformed rows (wrong types) are skipped so the search() hot path never
+        raises on logging.
+        """
+        for r in results:
+            if not isinstance(r, dict):
+                continue
+            collection = r.get("collection") if isinstance(r.get("collection"), str) else None
+            file_path = r.get("file_path") if isinstance(r.get("file_path"), str) else None
+            if not file_path and isinstance(r.get("path"), str):
+                parts = r["path"].split("/", 1)
+                if len(parts) == 2:
+                    collection, file_path = parts
+            chunk = r.get("chunk")
+            if collection and file_path:
+                self._track_doc_access(collection, file_path, chunk if isinstance(chunk, int) and not isinstance(chunk, bool) else None)
+
+    def _load_documents(self, collection: str | None = None) -> list[dict]:
+        """All documents aggregated per (collection, file_path) with full content.
+
+        chunk_index is the lowest chunk of the document; chunk count is kept in
+        `chunks`. Ordering follows first insertion so results stay deterministic.
+        A row with chunk_index NULL (reachable only via raw SQL) is tolerated:
+        the aggregate stays None until an integer chunk is seen (M9).
+        """
+        conn = self._get_conn()
+        sql = "SELECT collection, file_path, title, content, chunk_index FROM documents"
+        params: list = []
+        if collection is not None:
+            sql += " WHERE collection = ?"
+            params.append(collection)
+        sql += " ORDER BY id"
+        docs: dict[tuple[str, str], dict] = {}
+        for r in conn.execute(sql, params).fetchall():
+            key = (r["collection"], r["file_path"])
+            # Malformed rows (chunk_index NULL via raw SQL) degrade gracefully: a
+            # NULL chunk stays None until an integer chunk is seen — never raises.
+            chunk_index = r["chunk_index"] if isinstance(r["chunk_index"], int) else None
+            entry = docs.setdefault(
+                key,
+                {
+                    "collection": r["collection"],
+                    "file_path": r["file_path"],
+                    "title": r["title"] or "",
+                    "contents": [],
+                    "chunk_index": chunk_index,
+                },
+            )
+            entry["contents"].append(r["content"])
+            if chunk_index is not None and (entry["chunk_index"] is None or chunk_index < entry["chunk_index"]):
+                entry["chunk_index"] = chunk_index
+        out = []
+        for entry in docs.values():
+            entry["content"] = "\n".join(entry["contents"])
+            del entry["contents"]
+            out.append(entry)
+        return out
+
+    def find_related(
+        self, collection: str, file_path: str, chunk_index: int | None = None, limit: int = 5, *, explain: bool = False
+    ) -> Ok[dict] | Err:
+        """Documents related to a stored document (FUTURE_PLAN P1 #5).
+
+        Score = 0.4*tag_overlap + 0.2*same_collection + 0.4*content_similarity.
+
+        Grounding (the schema has no tag column): "tag overlap" is title-term
+        overlap — the share of the source title's terms found in the candidate
+        title — and is marked tag_overlap_source="title_terms" in explain.
+        Content similarity reuses scoring.lexical_relevance over the source
+        document's full unique term set (see _related_source_terms); the phrase
+        substring scan inside lexical_relevance is skipped for that large term
+        set (scoring._PHRASE_SCAN_MAX_TERMS). No embeddings, no new
+        dependencies. Candidates are aggregated per document; their reported
+        chunk_index is the first chunk. Related is the top `limit` (default 5)
+        candidates by score — the result does NOT guarantee cross-collection
+        visibility: a same-collection candidate can fill all slots. A
+        successful lookup records a session access for kb_recent.
+        """
+        collection_error = validate_collection(collection)
+        if collection_error:
+            return Err(error=collection_error)
+        limit_error = validate_limit(limit)
+        if limit_error:
+            return Err(error=limit_error)
+        if not file_path:
+            return Err(error="File path cannot be empty")
+        limit = min(limit, _MAX_SEARCH_LIMIT)
+        try:
+            conn = self._get_conn()
+            rows = conn.execute(
+                "SELECT title, content, chunk_index FROM documents WHERE collection = ? AND file_path = ? ORDER BY chunk_index",
+                (collection, file_path),
+            ).fetchall()
+            if not rows:
+                return Err(error=f"Document not found: {collection}/{file_path}")
+            if chunk_index is not None:
+                matched = [r for r in rows if r["chunk_index"] == chunk_index]
+                if not matched:
+                    return Err(error=f"Chunk not found: {collection}/{file_path}#{chunk_index}")
+                source_content = matched[0]["content"]
+            else:
+                source_content = "\n".join(r["content"] for r in rows)
+            source_title = rows[0]["title"] or ""
+
+            source_terms = _related_source_terms(source_title, source_content)
+            source_title_terms = _token_set(source_title)
+            related = []
+            for cand in self._load_documents():
+                if cand["collection"] == collection and cand["file_path"] == file_path:
+                    continue
+                cand_title_terms = _token_set(cand["title"])
+                tag_overlap = len(source_title_terms & cand_title_terms) / len(source_title_terms) if source_title_terms else 0.0
+                same_collection = cand["collection"] == collection
+                content_similarity = lexical_relevance(source_terms, cand["title"], cand["content"])
+                if tag_overlap == 0.0 and content_similarity == 0.0:
+                    continue  # no lexical signal: same_collection alone is not a relation
+                score = (
+                    _RELATED_W_TAG * tag_overlap + _RELATED_W_COLLECTION * (1.0 if same_collection else 0.0) + _RELATED_W_CONTENT * content_similarity
+                )
+                item = {
+                    "collection": cand["collection"],
+                    "file_path": cand["file_path"],
+                    "chunk_index": cand["chunk_index"],
+                    "title": cand["title"],
+                    "score": round(score, 4),
+                    "relation": {
+                        "tag_overlap": round(tag_overlap, 4),
+                        "same_collection": same_collection,
+                        "content_similarity": round(content_similarity, 4),
+                    },
+                }
+                if explain:
+                    item["explain"] = {
+                        "tag_overlap": round(tag_overlap, 4),
+                        "same_collection": same_collection,
+                        "content_similarity": round(content_similarity, 4),
+                        "final_score": round(score, 4),
+                        "tag_overlap_source": _TAG_OVERLAP_SOURCE,
+                        "weights": {
+                            "tag_overlap": _RELATED_W_TAG,
+                            "same_collection": _RELATED_W_COLLECTION,
+                            "content_similarity": _RELATED_W_CONTENT,
+                        },
+                    }
+                related.append(item)
+            related.sort(key=lambda i: (-i["score"], i["collection"], i["file_path"]))
+        except sqlite3.Error as e:
+            logger.debug("Find related failed: %s", e)
+            return Err(error=str(e))
+
+        self._track_doc_access(collection, file_path, chunk_index)
+        source = {
+            "collection": collection,
+            "file_path": file_path,
+            "chunk_index": chunk_index if chunk_index is not None else rows[0]["chunk_index"],
+            "title": source_title,
+            "chunks": len(rows),
+        }
+        return Ok(value={"source": source, "related": related[:limit]})
+
+    def get_recent(self, collection: str | None = None, since: str | None = None, limit: int = 10) -> Ok[list[dict]] | Err:
+        """Recently accessed documents, most recent first (FUTURE_PLAN P1 #6).
+
+        Grounding (no schema migration): access recency comes from the
+        per-Storage in-memory session access log (populated by search/get/
+        find_related, like DH-2's session recents but per document). Documents
+        absent from the log fill remaining slots from persistent signals —
+        retrieval_count DESC, updated_at DESC (retrieval_count > 0 only) — and
+        report accessed_at=None. For log entries `since` compares against the
+        session access time; for fallback rows against updated_at. This method
+        records nothing: querying recent activity is not an access, and a
+        kb_learn topic query is not a viewing either — only searches, document
+        fetches and related lookups log accesses.
+        """
+        if collection is not None:
+            collection_error = validate_collection(collection)
+            if collection_error:
+                return Err(error=collection_error)
+        since_dt = None
+        if since is not None:
+            since_error = validate_since(since)
+            if since_error:
+                return Err(error=since_error)
+            since_dt = parse_since(since)
+        limit_error = validate_limit(limit)
+        if limit_error:
+            return Err(error=limit_error)
+        limit = min(limit, _MAX_SEARCH_LIMIT)
+        try:
+            conn = self._get_conn()
+            out: list[dict] = []
+            seen: set[tuple[str, str]] = set()
+
+            def _row_dict(row: sqlite3.Row, accessed_at: str | None, chunk_index: int | None) -> dict:
+                return {
+                    "collection": row["collection"],
+                    "file_path": row["file_path"],
+                    "chunk_index": chunk_index if chunk_index is not None else row["chunk_index"],
+                    "title": row["title"],
+                    "accessed_at": accessed_at,
+                    "retrieval_count": row["retrieval_count"] or 0,
+                    "updated_at": row["updated_at"],
+                }
+
+            def _doc_row(coll: str, path: str) -> sqlite3.Row | None:
+                return conn.execute(
+                    "SELECT collection, file_path, title, chunk_index, retrieval_count, updated_at "
+                    "FROM documents WHERE collection = ? AND file_path = ? ORDER BY chunk_index LIMIT 1",
+                    (coll, path),
+                ).fetchone()
+
+            # 1) Session access log (newest first) — the primary signal.
+            for rec in self._recent_docs:
+                key = (rec["collection"], rec["file_path"])
+                if key in seen or (collection is not None and rec["collection"] != collection):
+                    continue
+                if since_dt is not None and rec["accessed_at"] < since_dt:
+                    continue
+                row = _doc_row(*key)
+                if row is None:
+                    continue  # deleted since access
+                seen.add(key)
+                out.append(_row_dict(row, rec["accessed_at"].strftime("%Y-%m-%d %H:%M:%S"), rec["chunk_index"]))
+                if len(out) >= limit:
+                    return Ok(value=out)
+
+            # 2) Documented fallback: retrieval_count DESC, updated_at DESC.
+            sql = (
+                "SELECT collection, file_path, MAX(title) AS title, MIN(chunk_index) AS chunk_index, "
+                "MAX(retrieval_count) AS retrieval_count, MAX(updated_at) AS updated_at "
+                "FROM documents WHERE retrieval_count > 0"
+            )
+            params: list = []
+            if collection is not None:
+                sql += " AND collection = ?"
+                params.append(collection)
+            sql += " GROUP BY collection, file_path ORDER BY retrieval_count DESC, updated_at DESC, collection, file_path"
+            for fallback_row in conn.execute(sql, params).fetchall():
+                if len(out) >= limit:
+                    break
+                key = (fallback_row["collection"], fallback_row["file_path"])
+                if key in seen:
+                    continue
+                updated = parse_since(fallback_row["updated_at"] or "")
+                if since_dt is not None and (updated is None or updated < since_dt):
+                    continue
+                seen.add(key)
+                out.append(_row_dict(fallback_row, None, fallback_row["chunk_index"]))
+        except sqlite3.Error as e:
+            logger.debug("Get recent failed: %s", e)
+            return Err(error=str(e))
+        return Ok(value=out)
+
+    def learn_topic(self, topic: str, collection: str | None = None, limit: int = 10) -> Ok[dict] | Err:
+        """Structured topic exploration (FUTURE_PLAN P1 #7).
+
+        Pure retrieval + deterministic grouping (no LLM calls — the host can
+        summarize the result later via kb_ask). Documents are gated by lexical
+        relevance to the topic terms (score > 0), then grouped into collections,
+        key documents and a beginner -> advanced learning path. The complexity
+        band comes from _document_level (title markers, else code-chunk ratio +
+        length). Within a level: higher relevance first, then documents whose
+        title names the level, then file_path for determinism. This method
+        records nothing: a topic query is not a viewing — only searches,
+        document fetches and related lookups log accesses.
+        """
+        if collection is not None:
+            collection_error = validate_collection(collection)
+            if collection_error:
+                return Err(error=collection_error)
+        topic_error = validate_topic(topic)
+        if topic_error:
+            return Err(error=topic_error)
+        limit_error = validate_limit(limit)
+        if limit_error:
+            return Err(error=limit_error)
+        terms = _query_terms(topic)
+        if not terms:
+            return Err(error="Topic has no searchable keywords")
+        limit = min(limit, _MAX_SEARCH_LIMIT)
+        try:
+            docs = self._load_documents(collection)
+            coll_totals: dict[str, int] = {}
+            for doc in docs:
+                coll_totals[doc["collection"]] = coll_totals.get(doc["collection"], 0) + 1
+
+            matched: list[dict] = []
+            coll_stats: dict[str, dict] = {}
+            for doc in docs:
+                score = lexical_relevance(terms, doc["title"], doc["content"])
+                if score <= 0:
+                    continue
+                level = _document_level(doc["title"], doc["content"])
+                matched.append(
+                    {
+                        "collection": doc["collection"],
+                        "file_path": doc["file_path"],
+                        "title": doc["title"],
+                        "level": level,
+                        "score": round(score, 4),
+                    }
+                )
+                stats = coll_stats.setdefault(
+                    doc["collection"], {"collection": doc["collection"], "documents": 0, "matched_documents": 0, "score": 0.0}
+                )
+                stats["matched_documents"] += 1
+                stats["score"] += score
+            for stats in coll_stats.values():
+                stats["documents"] = coll_totals[stats["collection"]]
+                stats["score"] = round(stats["score"], 4)
+
+            matched.sort(key=lambda d: (_LEVEL_RANK[d["level"]], 0 if _has_level_marker(d["title"], d["level"]) else 1, -d["score"], d["file_path"]))
+            key_documents = matched[:limit]
+
+            why_templates = {
+                "beginner": "Start here: covers the basics of {topic}",
+                "intermediate": "Builds on the fundamentals of {topic}",
+                "advanced": "Deep dive into {topic}",
+            }
+            learning_path = [
+                {
+                    "step": i,
+                    "document": f"{d['collection']}/{d['file_path']}",
+                    "level": d["level"],
+                    "why": why_templates[d["level"]].format(topic=topic),
+                }
+                for i, d in enumerate(key_documents, start=1)
+            ]
+        except sqlite3.Error as e:
+            logger.debug("Learn topic failed: %s", e)
+            return Err(error=str(e))
+
+        return Ok(
+            value={
+                "topic": topic,
+                "collections": sorted(coll_stats.values(), key=lambda c: (-c["score"], c["collection"])),
+                "key_documents": key_documents,
+                "learning_path": learning_path,
+            }
+        )
 
     def chunk_imported(self, chunk_id: str) -> bool:
         """Return True if chunk_id was already imported into this storage."""

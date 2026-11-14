@@ -1,6 +1,7 @@
 """Input validation for DocsHaven."""
 
 import re
+from datetime import datetime, timezone
 
 _MAX_QUERY_LENGTH = 10000
 _MAX_FTS5_TOKENS = 100
@@ -73,4 +74,42 @@ def validate_file_mask(mask: str) -> str | None:
     dangerous = set("|;&$`\x00")
     if any(c in mask for c in dangerous):
         return "File mask contains dangerous characters"
+    return None
+
+
+def validate_topic(topic: str) -> str | None:
+    if not topic or not topic.strip():
+        return "Topic cannot be empty"
+    if len(topic) > _MAX_QUERY_LENGTH:
+        return f"Topic too long (max {_MAX_QUERY_LENGTH} chars)"
+    return None
+
+
+def validate_limit(limit: int) -> str | None:
+    if not isinstance(limit, int) or isinstance(limit, bool):
+        return "Limit must be an integer"
+    if limit < 1:
+        return "Limit must be >= 1"
+    return None
+
+
+def parse_since(since: str) -> datetime | None:
+    """Parse an ISO date or datetime as naive UTC; None when unparseable.
+
+    A trailing 'Z'/'z' is stripped before parsing so Python 3.10's
+    fromisoformat (which rejects 'Z') accepts ISO datetimes with UTC designator.
+    """
+    text = since[:-1] if isinstance(since, str) and since.endswith(("Z", "z")) else since
+    try:
+        parsed = datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def validate_since(since: str) -> str | None:
+    if parse_since(since) is None:
+        return "Invalid since timestamp (expected ISO date or datetime)"
     return None

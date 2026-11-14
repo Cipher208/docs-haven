@@ -167,6 +167,74 @@ async def kb_ask(
 
 
 @mcp.tool()
+async def kb_related(
+    collection: str,
+    file_path: str,
+    chunk_index: int | None = None,
+    limit: int = 5,
+    *,
+    explain: bool = False,
+) -> dict:
+    """Find documents related to a stored document.
+
+    Scores candidates by title-term overlap (the "tag" signal — the schema has
+    no tag column), same-collection proximity, and content similarity (lexical
+    relevance over the source document's content): score = 0.4*tag +
+    0.2*same_collection + 0.4*content. Multi-chunk candidates appear once.
+    Candidates with no tag or content overlap are dropped.
+
+    Args:
+        collection: Collection of the source document
+        file_path: File path of the source document
+        chunk_index: Compare from this chunk only (optional; whole document otherwise)
+        limit: Max related documents (default: 5)
+        explain: Include the scoring breakdown per document (default: false)
+    """
+    if _is_unsafe_path(file_path):
+        return {"error": _ERR_INVALID_PATH}
+    return _unwrap(_get_storage().find_related(collection, file_path, chunk_index=chunk_index, limit=limit, explain=explain))
+
+
+@mcp.tool()
+async def kb_recent(collection: str | None = None, since: str | None = None, limit: int = 10) -> dict:
+    """List recently accessed documents, most recent first.
+
+    Access recency comes from a session access log (searches, gets, related
+    lookups); documents not seen this session are filled from retrieval_count
+    plus updated_at ordering. Querying recent activity does not record an
+    access — searches and document fetches do.
+
+    Args:
+        collection: Filter to one collection (optional)
+        since: ISO date/datetime lower bound on access/update time (optional)
+        limit: Max documents (default: 10)
+    """
+    result = _get_storage().get_recent(collection=collection, since=since, limit=limit)
+    if result.is_err:
+        return _unwrap(result)
+    return {"documents": result.unwrap()}
+
+
+@mcp.tool()
+async def kb_learn(topic: str, collection: str | None = None, limit: int = 10) -> dict:
+    """Explore a topic: related collections, key documents and a beginner ->
+    advanced learning path.
+
+    Pure retrieval with deterministic complexity grouping (title markers, else
+    code-chunk ratio + document length); no LLM calls. Use kb_ask to summarize
+    the returned documents afterwards. A topic query is not a viewing:
+    kb_learn records no accesses — only searches, document fetches and related
+    lookups log accesses.
+
+    Args:
+        topic: Topic to explore (e.g. "dependency injection in FastAPI")
+        collection: Restrict to one collection (optional)
+        limit: Max key documents / learning steps (default: 10)
+    """
+    return _unwrap(_get_storage().learn_topic(topic, collection=collection, limit=limit))
+
+
+@mcp.tool()
 async def kb_add_repo(
     url: str,
     tags: list[str] | None = None,

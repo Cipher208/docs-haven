@@ -137,6 +137,21 @@ LLM summary from found chunks with citations.
 
 **Files:** storage.py (add learn_topic method), server.py (add tool)
 
+#### KNOWN LIMITATIONS (P1 search tools, review round 4)
+
+- **N3 — related-doc scoring weights.** `kb_related`'s formula
+  (0.4\*tag_overlap + 0.2\*same_collection + 0.4\*content_similarity) is
+  spec-derived but lets same-collection proximity dominate realistic lexical
+  signals; recalibrating the weights is a future decision.
+- **N4 — per-call corpus load.** `find_related`/`learn_topic` load the corpus
+  per call (O(corpus) memory and time via `_load_documents`). Fine for local
+  libraries; needs indexing at scale.
+- **N5 — hard term cap in related lookup.** `_related_source_terms` keeps at
+  most 512 unique terms (title first); in documents with more than ~511 unique
+  word forms (~2000+ words) a subject living only in the body can fall outside
+  the cap and drop the candidate. Frequency-based term selection instead of
+  first-512 is the future fix.
+
 ---
 
 ## P2: Indexation Sources — Expanding Sources
