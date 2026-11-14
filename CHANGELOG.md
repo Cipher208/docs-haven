@@ -4,6 +4,11 @@ All notable changes to DocsHaven will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Removed
+- **alias.py** — never wired, dead since v0.8.0; hot MCP parameters now accept common argument aliases natively via pydantic AliasChoices.
+
 ## [0.9.0] - 2026-07-23
 
 ### Added

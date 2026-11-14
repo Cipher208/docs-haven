@@ -26,7 +26,6 @@
 - ✅ Vector search — TF-IDF based, no external dependencies
 - ✅ Score explanation — `explain=True` returns per-signal breakdown
 - ✅ Importance scoring — recency (exponential decay, 90-day half-life) + retrieval frequency
-- ✅ LLM argument aliasing — 70+ aliases for hallucinated parameter names
 - ✅ Conflict detection + resolution CLI
 
 ### Infrastructure (v0.7.0 – v0.9.0)
@@ -465,6 +464,12 @@ Authentication, roles, per-user collections.
 Automated index backups.
 
 **When:** Git sync stops ensuring data safety.
+
+---
+
+## Rejected / not pursued
+
+- **LLM argument aliasing (alias.py, 70+ aliases)** — replaced by native per-parameter `validation_alias=AliasChoices(...)` on the hot MCP tools. The old module was never wired and its alias map contradicted itself ("path" was both alias and target); pydantic resolves hallucinated parameter names natively without polluting the tools/list schema.
 
 ---
 

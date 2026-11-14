@@ -289,7 +289,7 @@ No. DocsHaven is fully local. The only network operation is cloning GitHub repos
 
 ```
 docs-haven/
-├── server.py        # MCP server (20 tools)
+├── server.py        # MCP server (20 tools, native argument aliases on hot tools)
 ├── storage.py       # SQLite FTS5 backend + Result types
 ├── vector.py        # TF-IDF vector search (optional)
 ├── uri.py           # URI routing
@@ -299,7 +299,6 @@ docs-haven/
 ├── cli.py           # CLI interface (11 commands)
 ├── templates.py     # Collection templates
 ├── import_guard.py  # Import validation
-├── alias.py         # LLM argument aliasing
 ├── benchmark.py     # Performance benchmarks
 ├── tests/           # pytest test suite (282 tests)
 ├── docs/            # Documentation + 10 ADRs

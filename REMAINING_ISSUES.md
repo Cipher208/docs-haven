@@ -46,6 +46,6 @@ Every issue from the 3-delegate code review has been fixed:
 | uri.py | L4,L13,M13 |
 | templates.py | M3 |
 | benchmark.py | M14,L3 |
-| alias.py | L1 |
+| alias.py | N/A — module removed (never wired; replaced by native pydantic AliasChoices) |
 | import_guard.py | L5 |
 | result.py | L6 |

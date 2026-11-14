@@ -3,9 +3,10 @@
 import logging
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import Context, FastMCP
+from pydantic import AliasChoices, Field
 
 from conflicts import ConflictDetector
 from import_guard import check_imports
@@ -72,7 +73,7 @@ def _get_detector() -> ConflictDetector:
 
 @mcp.tool()
 async def kb_search(
-    query: str,
+    query: Annotated[str, Field(validation_alias=AliasChoices("query", "q", "text", "search_query"))],
     collections: list[str] | None = None,
     limit: int = 10,
     min_score: float = 0.0,
@@ -97,7 +98,7 @@ async def kb_search(
 
 @mcp.tool()
 async def kb_ask(
-    question: str,
+    question: Annotated[str, Field(validation_alias=AliasChoices("question", "query", "q", "userQuery", "prompt"))],
     collections: list[str] | None = None,
     context: list[str] | None = None,
     limit: int = 5,
@@ -261,7 +262,7 @@ async def kb_add_repo(
 
 
 @mcp.tool()
-async def kb_get(file_path: str) -> dict:
+async def kb_get(file_path: Annotated[str, Field(validation_alias=AliasChoices("file_path", "filePath", "documentId", "doc_path"))]) -> dict:
     """Get full content of a document.
 
     Args:
