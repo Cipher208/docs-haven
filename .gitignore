@@ -24,3 +24,7 @@ build/
 # coverage artifacts
 .coverage
 .coverage.*
+
+# private work artifacts, never tracked
+.ps3-plan.md
+.agent-plan/
