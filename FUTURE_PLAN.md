@@ -19,14 +19,19 @@
 - ✅ Result type (Ok/Err) with Pydantic v2
 - ✅ Input validation (URL, collection names, query length, file masks)
 - ✅ E2E + chaos test suite
-- ✅ ADRs (8 architectural decisions)
-- ✅ CLI interface (11 commands)
+- ✅ ADRs (10 architectural decisions)
+- ✅ CLI interface (13 commands)
 
 ### Search & Scoring (v0.6.0 – v0.9.0)
 - ✅ Vector search — TF-IDF based, no external dependencies
 - ✅ Score explanation — `explain=True` returns per-signal breakdown
 - ✅ Importance scoring — recency (exponential decay, 90-day half-life) + retrieval frequency
 - ✅ Conflict detection + resolution CLI
+
+### Smart Search (P1)
+- ✅ kb_ask — natural-language answers with inline citations via the MCP host LLM (answer modes: llm / host_unavailable / no_results)
+- ✅ Query expansion + context-aware ranking (session-recency and `context` boosts)
+- ✅ kb_related / kb_recent / kb_learn — related documents, recent activity, topic learning paths (see P1 below; KNOWN LIMITATIONS apply)
 
 ### Infrastructure (v0.7.0 – v0.9.0)
 - ✅ Context attachments — human-written summaries for collections
@@ -44,7 +49,11 @@
 
 > **Goal:** Agent asks questions in natural language, gets answers with citations. Not "formulate a search query" — "answer the question".
 
-### 1. kb_ask() — NL Query Engine
+> **Status: ✅ delivered** — kb_ask, kb_related, kb_recent and kb_learn are live in
+> server.py (with llm.py for the host-LLM handoff). The sections below are the
+> design record; the KNOWN LIMITATIONS block still applies.
+
+### 1. ✅ kb_ask() — NL Query Engine
 
 Natural language → search → LLM summary → `{answer, chunks, citations}`.
 
@@ -67,7 +76,7 @@ kb_ask("how to use Depends with parameters in FastAPI?")
 
 **Files:** server.py (add kb_ask tool), storage.py (query expansion), new: llm.py (LLM integration via MCP host)
 
-### 2. Query Expansion
+### 2. ✅ Query Expansion
 
 Automatic expansion of search queries.
 
@@ -79,7 +88,7 @@ Automatic expansion of search queries.
 
 **Files:** storage.py (add _expand_query method)
 
-### 3. Context-Aware Search
+### 3. ✅ Context-Aware Search
 
 Search knows what the agent viewed before.
 
@@ -91,7 +100,7 @@ Search knows what the agent viewed before.
 
 **Files:** storage.py (add context tracking)
 
-### 4. Answer Mode (LLM Summary)
+### 4. ✅ Answer Mode (LLM Summary)
 
 LLM summary from found chunks with citations.
 
@@ -103,7 +112,7 @@ LLM summary from found chunks with citations.
 
 **Files:** server.py (kb_ask returns answer mode)
 
-### 5. kb_related() — Related Documents
+### 5. ✅ kb_related() — Related Documents
 
 "What else is related to this?"
 
@@ -114,7 +123,7 @@ LLM summary from found chunks with citations.
 
 **Files:** storage.py (add find_related method), server.py (add tool)
 
-### 6. kb_recent() — Recent Activity
+### 6. ✅ kb_recent() — Recent Activity
 
 "What did I look at yesterday?"
 
@@ -125,7 +134,7 @@ LLM summary from found chunks with citations.
 
 **Files:** storage.py (add get_recent method), server.py (add tool)
 
-### 7. kb_learn() — Topic Exploration
+### 7. ✅ kb_learn() — Topic Exploration
 
 "I want to learn about this topic."
 
@@ -477,7 +486,7 @@ Automated index backups.
 
 | Phase | Scope | Estimate |
 |-------|-------|----------|
-| **P1** | kb_ask + Query Expansion + Context-aware + kb_related + kb_recent | 1-2 weeks |
+| **P1** | kb_ask + Query Expansion + Context-aware + kb_related + kb_recent + kb_learn | ✅ Delivered |
 | **P2** | Local/URL/Text/PyPI indexing + Bookmarks | 1-2 weeks |
 | **P3** | repos table + hierarchy + tags M2M + freshness + versions + auto-tags + cross-refs | 2-3 weeks |
 | **P4** | Primitive API + layered tools + consolidation | 3-5 days |
@@ -486,4 +495,4 @@ Automated index backups.
 
 ---
 
-*Last updated: 2026-07-23*
+*Last updated: 2026-11-14*

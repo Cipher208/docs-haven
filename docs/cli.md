@@ -1,6 +1,6 @@
 # CLI Reference
 
-DocsHaven provides a command-line interface for managing your knowledge base.
+DocsHaven provides a command-line interface with 13 commands for managing your knowledge base.
 
 ## Installation
 
@@ -134,8 +134,36 @@ docs-haven import backup.json
 Delete a document from the knowledge base.
 
 ```bash
+# Scoped form (recommended): collection/file_path
 docs-haven delete fastapi/README.md
+
+# Plain file_path — only when exactly one collection holds it
+docs-haven delete README.md
 ```
+
+**Scoped semantics:** deletion never mass-deletes. With the
+`collection/file_path` form only that document is removed (idempotent when
+nothing matched). A plain `file_path` is deleted only when it exists in exactly
+one collection; zero matches is an idempotent success; a path shared by several
+collections errors and deletes nothing — use the scoped form to name the
+collection.
+
+### get
+
+Get a document by path.
+
+```bash
+# Scoped form: collection/file_path
+docs-haven get fastapi/README.md
+
+# Plain file_path
+docs-haven get README.md
+```
+
+**Options:**
+- `file_path` (required): Document path — `collection/file_path` (scoped) or plain `file_path`
+
+Prints the document content.
 
 ### uri
 
@@ -163,6 +191,30 @@ docs-haven serve --port 9000
 
 **Options:**
 - `-p, --port`: Port number (default: 8000)
+
+### conflicts
+
+Conflict detection and resolution.
+
+```bash
+# List collections (starting point for conflict review)
+docs-haven conflicts list
+
+# Check a candidate document for conflicts
+docs-haven conflicts check "FastAPI dependency injection" "How to use Depends()..."
+
+# Interactively judge the candidates of a document
+docs-haven conflicts resolve <new_id>
+
+# Get a suggested resolution strategy
+docs-haven conflicts suggest <new_id>
+```
+
+**Subcommands:**
+- `list`: List all collections
+- `check <title> <content>`: Search for similar documents and print candidates with scores
+- `resolve <new_id>`: Interactive review — record a judgment per candidate (`supersedes`, `conflicts_with`, `unrelated`)
+- `suggest <new_id>`: Print a suggested resolution with confidence and reason
 
 ## Global Options
 

@@ -6,7 +6,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/Cipher208/docs-haven)](https://github.com/Cipher208/docs-haven/commits/main)
 [![CI](https://img.shields.io/github/actions/workflow/status/Cipher208/docs-haven/ci.yml?branch=main)](https://github.com/Cipher208/docs-haven/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Coverage](https://img.shields.io/badge/coverage-91%25-brightgreen)](https://codecov.io/gh/Cipher208/docs-haven)
+[![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen)](https://codecov.io/gh/Cipher208/docs-haven)
 
 > **Your AI agent keeps forgetting what it learned last session. DocsHaven fixes that.**
 
@@ -14,7 +14,7 @@
 
 **Why DocsHaven?**
 - 🧠 **Add repos once, search forever** — your agent always has the knowledge it needs
-- ⚡ **Instant search** — SQLite FTS5 finds relevant docs in <100ms
+- ⚡ **Instant search** — SQLite FTS5 finds relevant docs in milliseconds
 - 🔌 **Works with any AI agent** — Claude, Cursor, Gemini, Codex via MCP
 - 🏠 **100% local** — no cloud, no API keys, no data leaves your machine
 - 📦 **Minimal dependencies** — only `mcp[cli]`, no Docker or external services
@@ -25,7 +25,7 @@
 - **URI routing** — organize knowledge by domain: `core://`, `ref://`, `guide://`
 - **Git sync** — compressed chunks for multi-machine sync (no merge conflicts)
 - **Conflict detection** — flag contradictions when adding documents
-- **MCP server** — 20 tools for any MCP-compatible agent
+- **MCP server** — 29 tools for any MCP-compatible agent
 - **Document chunking** — split long documents for better search precision
 - **Result type** — Pydantic v2 models with Ok/Err pattern
 - **Input validation** — URL, collection names, query length validated
@@ -211,18 +211,23 @@ Then ask your agent:
 
 </details>
 
-## MCP Tools (20)
+## MCP Tools (29)
 
 | Tool | Description |
 |------|-------------|
 | `kb_search` | Search with BM25 ranking + highlighted excerpts |
+| `kb_ask` | Natural-language answers with citations (host LLM) |
+| `kb_related` | Related documents for a stored document |
+| `kb_recent` | Recently accessed documents |
+| `kb_learn` | Topic exploration: collections, key docs, learning path |
 | `kb_add_repo` | Clone and index a GitHub repo |
 | `kb_get` | Get document content |
-| `kb_update` | Update document content |
-| `kb_delete` | Delete document from knowledge base |
+| `kb_update` | Update document content (scoped; metadata preserved) |
+| `kb_delete` | Delete document (scoped, never mass-deletes) |
 | `kb_list_collections` | List all collections |
 | `kb_stats` | Database statistics |
 | `kb_collection_rename` | Rename a collection |
+| `kb_check_imports` | Validate a file's imports against real modules |
 | `kb_context_add` | Add context attachment |
 | `kb_context_list` | List context attachments |
 | `kb_context_rm` | Remove context attachment |
@@ -235,13 +240,16 @@ Then ask your agent:
 | `kb_sync_status` | Sync status |
 | `kb_conflict_check` | Detect conflicts |
 | `kb_conflict_judge` | Record judgment |
+| `kb_conflict_details` | Conflict details for resolution |
+| `kb_conflict_suggest` | Suggest resolution strategy |
+| `kb_template_list` | List collection templates |
+| `kb_template_apply` | Apply a collection template |
 
 ## Comparison
 
 | Feature | DocsHaven | QMD | Elasticsearch | Context7 |
 |---------|-----------|-----|---------------|----------|
 | Dependencies | 1 (mcp) | 1 (npm) | JVM + plugins | External service |
-| Setup time | 10 seconds | 5 minutes | 30+ minutes | API key needed |
 | MCP server | Built-in | No | No | Yes |
 | URI routing | Yes | No | No | No |
 | Conflict detection | Yes | No | No | No |
@@ -253,7 +261,7 @@ Then ask your agent:
 <details>
 <summary><b>What is DocsHaven?</b></summary>
 
-DocsHaven is a local knowledge base designed for AI agents. It provides full-text search via SQLite FTS5, organizes knowledge by URI domains (core://, ref://, guide://), and detects contradictions when adding new documents. It runs as an MCP server with 20 tools.
+DocsHaven is a local knowledge base designed for AI agents. It provides full-text search via SQLite FTS5, organizes knowledge by URI domains (core://, ref://, guide://), and detects contradictions when adding new documents. It runs as an MCP server with 29 tools.
 
 </details>
 
@@ -267,14 +275,14 @@ DocsHaven adds a complete knowledge management layer on top of SQLite: automatic
 <details>
 <summary><b>Can I use this with Claude Desktop / Cursor / other AI agents?</b></summary>
 
-Yes. DocsHaven runs as an MCP server. Add it to your MCP client config and all 20 tools become available to your agent.
+Yes. DocsHaven runs as an MCP server. Add it to your MCP client config and all 29 tools become available to your agent.
 
 </details>
 
 <details>
 <summary><b>How fast is search?</b></summary>
 
-SQLite FTS5 with BM25 ranking handles 1,000+ documents in under 100ms on modern hardware. No network latency since everything is local.
+SQLite FTS5 with BM25 ranking is fast on local libraries: in the bundled benchmark (`uv run python benchmark.py --json`, 1,000 documents, 1,000 queries) the average query takes 9.8ms (P95 52.8ms). No network latency since everything is local.
 
 </details>
 
@@ -289,34 +297,40 @@ No. DocsHaven is fully local. The only network operation is cloning GitHub repos
 
 ```
 docs-haven/
-├── server.py        # MCP server (20 tools, native argument aliases on hot tools)
+├── server.py        # MCP server (29 tools, native argument aliases on hot tools)
 ├── storage.py       # SQLite FTS5 backend + Result types
+├── scoring.py       # BM25/lexical scoring + boosts
+├── chunking.py      # Document chunking (text + code-aware)
+├── validation.py    # Input validation
 ├── vector.py        # TF-IDF vector search (optional)
 ├── uri.py           # URI routing
 ├── sync.py          # Git sync (compressed chunks)
 ├── conflicts.py     # Conflict detection
+├── llm.py           # LLM integration via MCP host (kb_ask)
 ├── result.py        # Ok/Err Result type (Pydantic v2)
-├── cli.py           # CLI interface (11 commands)
+├── cli.py           # CLI interface (13 commands)
 ├── templates.py     # Collection templates
 ├── import_guard.py  # Import validation
 ├── benchmark.py     # Performance benchmarks
-├── tests/           # pytest test suite (282 tests)
+├── tests/           # pytest test suite (406 tests)
 ├── docs/            # Documentation + 10 ADRs
 └── pyproject.toml   # Package config (uv)
 ```
 
 ## Performance
 
-Benchmarked on Linux (Python 3.14, SQLite FTS5):
+Measured with `uv run python benchmark.py --json` (Python 3.11, SQLite 3.50 — one example run; same-machine runs vary by ~25-40%):
 
 | Operation | Time |
 |-----------|------|
-| Index 1,000 docs | 0.076s (13,219 docs/sec) |
-| Search (avg) | 3.3ms |
-| Search (P95) | 4.3ms |
-| Throughput | 299 queries/sec |
+| Index 100 docs | 0.035s (2,847 docs/sec) |
+| Index 500 docs | 0.199s (2,512 docs/sec) |
+| Index 1,000 docs | 0.369s (2,711 docs/sec) |
+| Search (avg) | 9.8ms |
+| Search (P95) | 52.8ms |
+| Throughput | 102 queries/sec |
 
-Run benchmark: `uv run python benchmark.py`
+Run benchmark: `uv run python benchmark.py --json`
 
 ## Integrations
 

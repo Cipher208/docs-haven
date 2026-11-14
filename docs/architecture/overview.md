@@ -4,15 +4,22 @@
 
 ```
 docs-haven/
-├── server.py        # MCP server — tool routing and lifecycle
+├── server.py        # MCP server — 29 tools, routing and lifecycle
 ├── storage.py       # SQLite FTS5 backend — search and indexing
+├── scoring.py       # Scoring — BM25/lexical relevance, type/importance boosts
+├── chunking.py      # Chunking — text + code-aware document splitting
+├── validation.py    # Input validation — parameters, paths, masks
+├── vector.py        # TF-IDF vector search — optional strategy
 ├── uri.py           # URI routing — domain://path organization
 ├── sync.py          # Git sync — compressed chunks for multi-machine
 ├── conflicts.py     # Conflict detection — find contradictions
+├── llm.py           # LLM handoff — kb_ask prompts via the MCP host
 ├── result.py        # Ok/Err Result type — error handling pattern
-├── cli.py           # CLI interface — 7 commands
+├── templates.py     # Collection templates
+├── import_guard.py  # Import validation — phantom import checks
+├── cli.py           # CLI interface — 13 commands
 ├── benchmark.py     # Performance benchmarks
-└── tests/           # pytest test suite (88 tests)
+└── tests/           # pytest test suite (406 tests)
 ```
 
 ## Data Flow
@@ -49,6 +56,8 @@ SQLite with FTS5 full-text search. No external dependencies.
 - **documents** table: stores document chunks with metadata
 - **documents_fts** virtual table: FTS5 index for BM25 search
 - **conflict_judgments** table: persists conflict judgments
+- **context_attachments** table: human-written collection summaries
+- **imported_chunks** table: sync dedup guard (already-imported chunk IDs)
 - **triggers**: keep FTS in sync with document changes
 
 ### Search Strategies

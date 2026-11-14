@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+- **Docs** — documentation synced with measured reality: MCP reference now covers all 29 tools (kb_ask, kb_related, kb_recent, kb_learn + scoped update/delete semantics), CLI reference matches all 13 commands, and stale counts (tests, coverage, benchmarks) were re-measured and corrected.
+
 ### Removed
 - **alias.py** — never wired, dead since v0.8.0; hot MCP parameters now accept common argument aliases natively via pydantic AliasChoices.
 
