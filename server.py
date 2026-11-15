@@ -1,5 +1,6 @@
 """DocsHaven — local knowledge base for AI agents with SQLite FTS5 search."""
 
+import functools
 import logging
 import threading
 from pathlib import Path
@@ -15,12 +16,17 @@ from result import Err
 from storage import Storage, resolve_chunk
 from sync import Syncer, get_username
 from uri import URIRouter
-from validation import validate_question
+from validation import validate_question, validate_url
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("docs-haven")
 
 _ERR_INVALID_PATH = "Invalid file path"
+
+# kb_index source schemes and auto-detection
+_LOCAL_PREFIX = "path://"
+_GITHUB_PREFIX = "github://"
+_SUPPORTED_KINDS = "local folder (path://<dir> or an existing directory) or GitHub repo (github://<owner>/<repo> or a git URL)"
 
 mcp = FastMCP("docs-haven")
 
@@ -255,6 +261,83 @@ async def kb_add_repo(
     # Run blocking git clone in executor to avoid blocking event loop
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, storage.add_repo, url, tags, description, mask)
+    return _unwrap(result)
+
+
+def _classify_source(source: str, explicit: str | None) -> tuple[str, str] | Err:
+    """Classify a kb_index source into ("local"|"github", normalized target).
+
+    An explicit type always wins; without one, a path:// URI or an existing
+    local directory is local, a github:// URI or a valid git URL is github.
+    """
+    kind = explicit.strip().lower() if explicit else None
+    if kind is not None and kind not in ("local", "github"):
+        return Err(error=f"Unknown source type: {explicit}. Supported kinds: {_SUPPORTED_KINDS}")
+
+    target = source
+    if source.startswith(_LOCAL_PREFIX):
+        target = source[len(_LOCAL_PREFIX) :]
+        kind = kind or "local"
+    elif source.startswith(_GITHUB_PREFIX):
+        target = f"https://github.com/{source[len(_GITHUB_PREFIX) :]}"
+        kind = kind or "github"
+
+    if kind == "local":
+        return "local", target
+    if kind == "github":
+        return "github", target
+    # auto-detection: an existing directory is local, a valid git URL is github
+    if "\x00" not in target and Path(target).is_dir():
+        return "local", target
+    if validate_url(target) is None:
+        return "github", target
+    return Err(error=f"Unsupported source: {source}. Supported kinds: {_SUPPORTED_KINDS}")
+
+
+@mcp.tool()
+async def kb_index(
+    source: Annotated[str, Field(validation_alias=AliasChoices("source", "url", "path", "folder"))],
+    type: str | None = None,
+    collection: str | None = None,
+    tags: list[str] | None = None,
+    description: str | None = None,
+    mask: str | None = None,
+) -> dict:
+    """Index a source into the knowledge base — local folder or GitHub repo.
+
+    Auto-detects the source kind: a path:// URI or an existing local directory
+    indexes files straight from disk (no git); a github:// URI or a git URL
+    clones and delegates to the kb_add_repo flow. An explicit type overrides
+    detection.
+
+    Args:
+        source: Local folder (path://<dir> or a plain existing directory) or GitHub repo (github://<owner>/<repo> or a git URL); also accepted as 'url', 'path' or 'folder'
+        type: Force the source kind: "local" or "github" (optional; auto-detected otherwise)
+        collection: Collection name override (local sources only; GitHub names come from the URL)
+        tags: Optional tags
+        description: Optional description
+        mask: File pattern (default: **/*.md). Use **/*.rst for Sphinx, **/*.py for Python.
+    """
+    import asyncio
+
+    classified = _classify_source(source, type)
+    if isinstance(classified, Err):
+        return _unwrap(classified)
+    kind, target = classified
+
+    if kind == "github":
+        if collection is not None:
+            return _unwrap(Err(error="collection override is only supported for local sources (GitHub names come from the URL)"))
+        storage = _get_storage()
+        # Run blocking git clone in executor to avoid blocking event loop
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, storage.add_repo, target, tags, description, mask)
+    else:
+        storage = _get_storage()
+        # Run blocking file IO in executor to avoid blocking event loop
+        loop = asyncio.get_running_loop()
+        call = functools.partial(storage.add_local, target, collection=collection, tags=tags, description=description, mask=mask)
+        result = await loop.run_in_executor(None, call)
     return _unwrap(result)
 
 

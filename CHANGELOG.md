@@ -6,8 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+- **Local folder indexing + `kb_index` unified entry (P2-1)** — `Storage.add_local` indexes a local folder without git (default mask `**/*.md`), registering `source_type: "local"` and `url: "path://<absolute path>"` in config; incremental reindex and stale checks resolve local dirs from config. New MCP tool `kb_index` auto-detects local vs GitHub sources (`type` overrides detection) and delegates GitHub sources to the existing `kb_add_repo` flow. MCP tools 29 → 30; tests 424 → 449 (+25 anchors).
+
 ### Changed
-- **Docs** — documentation synced with measured reality: MCP reference now covers all 29 tools (kb_ask, kb_related, kb_recent, kb_learn + scoped update/delete semantics), CLI reference matches all 13 commands, and stale counts (tests, coverage, benchmarks) were re-measured and corrected.
+- **Docs** — documentation synced with measured reality: MCP reference covered all 29 tools of that sync (30 since `kb_index` above), CLI reference matches all 13 commands, and stale counts (tests, coverage, benchmarks) were re-measured and corrected.
 
 ### Removed
 - **alias.py** — never wired, dead since v0.8.0; hot MCP parameters now accept common argument aliases natively via pydantic AliasChoices.

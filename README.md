@@ -25,7 +25,8 @@
 - **URI routing** — organize knowledge by domain: `core://`, `ref://`, `guide://`
 - **Git sync** — compressed chunks for multi-machine sync (no merge conflicts)
 - **Conflict detection** — flag contradictions when adding documents
-- **MCP server** — 29 tools for any MCP-compatible agent
+- **Source indexing** — GitHub repos and local folders through one `kb_index` entry
+- **MCP server** — 30 tools for any MCP-compatible agent
 - **Document chunking** — split long documents for better search precision
 - **Result type** — Pydantic v2 models with Ok/Err pattern
 - **Input validation** — URL, collection names, query length validated
@@ -211,7 +212,7 @@ Then ask your agent:
 
 </details>
 
-## MCP Tools (29)
+## MCP Tools (30)
 
 | Tool | Description |
 |------|-------------|
@@ -221,6 +222,7 @@ Then ask your agent:
 | `kb_recent` | Recently accessed documents |
 | `kb_learn` | Topic exploration: collections, key docs, learning path |
 | `kb_add_repo` | Clone and index a GitHub repo |
+| `kb_index` | Index any source — local folder or GitHub repo (auto-detect) |
 | `kb_get` | Get document content |
 | `kb_update` | Update document content (scoped; metadata preserved) |
 | `kb_delete` | Delete document (scoped, never mass-deletes) |
@@ -261,7 +263,7 @@ Then ask your agent:
 <details>
 <summary><b>What is DocsHaven?</b></summary>
 
-DocsHaven is a local knowledge base designed for AI agents. It provides full-text search via SQLite FTS5, organizes knowledge by URI domains (core://, ref://, guide://), and detects contradictions when adding new documents. It runs as an MCP server with 29 tools.
+DocsHaven is a local knowledge base designed for AI agents. It provides full-text search via SQLite FTS5, organizes knowledge by URI domains (core://, ref://, guide://), and detects contradictions when adding new documents. It runs as an MCP server with 30 tools.
 
 </details>
 
@@ -275,7 +277,7 @@ DocsHaven adds a complete knowledge management layer on top of SQLite: automatic
 <details>
 <summary><b>Can I use this with Claude Desktop / Cursor / other AI agents?</b></summary>
 
-Yes. DocsHaven runs as an MCP server. Add it to your MCP client config and all 29 tools become available to your agent.
+Yes. DocsHaven runs as an MCP server. Add it to your MCP client config and all 30 tools become available to your agent.
 
 </details>
 
@@ -297,7 +299,7 @@ No. DocsHaven is fully local. The only network operation is cloning GitHub repos
 
 ```
 docs-haven/
-├── server.py        # MCP server (29 tools, native argument aliases on hot tools)
+├── server.py        # MCP server (30 tools, native argument aliases on hot tools)
 ├── storage.py       # SQLite FTS5 backend + Result types
 ├── scoring.py       # BM25/lexical scoring + boosts
 ├── chunking.py      # Document chunking (text + code-aware)
@@ -312,7 +314,7 @@ docs-haven/
 ├── templates.py     # Collection templates
 ├── import_guard.py  # Import validation
 ├── benchmark.py     # Performance benchmarks
-├── tests/           # pytest test suite (406 tests)
+├── tests/           # pytest test suite (449 tests)
 ├── docs/            # Documentation + 10 ADRs
 └── pyproject.toml   # Package config (uv)
 ```

@@ -1,7 +1,9 @@
 """Input validation for DocsHaven."""
 
+import os
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 _MAX_QUERY_LENGTH = 10000
 _MAX_FTS5_TOKENS = 100
@@ -74,6 +76,25 @@ def validate_file_mask(mask: str) -> str | None:
     dangerous = set("|;&$`\x00")
     if any(c in mask for c in dangerous):
         return "File mask contains dangerous characters"
+    return None
+
+
+def validate_local_dir(path: str) -> str | None:
+    """Validate a local directory for indexing. Returns error or None.
+
+    The path must exist, be a directory, and be readable.
+    """
+    if not path or not path.strip():
+        return "Local path cannot be empty"
+    if "\x00" in path:
+        return "Local path contains NUL byte"
+    p = Path(path)
+    if not p.exists():
+        return f"Local path does not exist: {path}"
+    if not p.is_dir():
+        return f"Local path is not a directory: {path}"
+    if not os.access(p, os.R_OK):
+        return f"Local path is not readable: {path}"
     return None
 
 

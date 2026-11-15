@@ -31,6 +31,7 @@ from validation import (
     validate_collection,
     validate_file_mask,
     validate_limit,
+    validate_local_dir,
     validate_query,
     validate_since,
     validate_topic,
@@ -606,6 +607,66 @@ class Storage:
         self._save_config(config)
 
         return Ok(value={"name": name, "status": _ACTION_ADDED, "files_indexed": indexed, "chunks": total_chunks})
+
+    def add_local(
+        self,
+        path: str,
+        collection: str | None = None,
+        tags: list[str] | None = None,
+        description: str | None = None,
+        mask: str | None = None,
+    ) -> Ok[dict] | Err:
+        """Index a local folder directly (no git) and register it in config.
+
+        Mirrors add_repo's result shape and config entry; the entry adds
+        source_type="local" and url="path://<absolute path>" so the shape
+        stays uniform with github entries.
+        """
+        path_error = validate_local_dir(path)
+        if path_error:
+            return Err(error=path_error)
+
+        local_dir = Path(path).resolve()
+        name = collection or local_dir.name
+        name_error = validate_collection(name)
+        if name_error:
+            return Err(error=f"Invalid collection name: {name_error}")
+
+        file_mask = mask or "**/*.md"
+        mask_error = validate_file_mask(file_mask)
+        if mask_error:
+            return Err(error=mask_error)
+
+        files = self._collect_indexable_files(local_dir, file_mask)
+        indexed, total_chunks = self._index_files(name, files, local_dir, description)
+
+        config = self._load_config()
+        config["repos"][name] = {
+            "url": f"path://{local_dir}",
+            "source_type": "local",
+            "tags": tags or [],
+            "description": description or "",
+            "files_indexed": indexed,
+            "total_chunks": total_chunks,
+        }
+        self._save_config(config)
+
+        return Ok(value={"name": name, "status": _ACTION_ADDED, "files_indexed": indexed, "chunks": total_chunks})
+
+    def _resolve_collection_dir(self, collection: str) -> Path:
+        """Resolve the source directory for a collection.
+
+        Local collections (source_type == "local") resolve from their config
+        entry; everything else resolves from the default clone location in
+        repos_dir.
+        """
+        config = self._load_config()
+        entry = config.get("repos", {}).get(collection)
+        if entry and entry.get("source_type") == "local":
+            url = entry.get("url", "")
+            if url.startswith("path://"):
+                return Path(url[len("path://") :])
+        return self.repos_dir / collection
 
     def _merge_hybrid(self, results: list[dict], query: str, collections: list[str] | None, limit: int) -> list[dict]:
         like_results = self._search_like(query, collections, limit)
@@ -1845,7 +1906,7 @@ class Storage:
             return Err(error=coll_error)
         conn = self._get_conn()
         try:
-            repo_dir = self.repos_dir / collection
+            repo_dir = self._resolve_collection_dir(collection)
             if not repo_dir.exists():
                 return Ok(value=[])
 
@@ -1953,7 +2014,7 @@ class Storage:
             ).fetchall()
 
             if repo_dir is None:
-                repo_dir = self.repos_dir / collection
+                repo_dir = self._resolve_collection_dir(collection)
 
             stored = {r["file_path"]: r["content_hash"] for r in rows}
             current = (
@@ -1991,7 +2052,7 @@ class Storage:
         if coll_error:
             return Err(error=coll_error)
 
-        repo_dir = self.repos_dir / collection
+        repo_dir = self._resolve_collection_dir(collection)
         if not repo_dir.exists():
             return Err(error=f"Repository not found: {collection}")
 

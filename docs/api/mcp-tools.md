@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-DocsHaven exposes 29 MCP tools for knowledge base operations.
+DocsHaven exposes 30 MCP tools for knowledge base operations.
 
 ## Search & Retrieval
 
@@ -281,6 +281,37 @@ Clone and index a GitHub repository.
 - `tags` (list, optional): Optional tags
 - `description` (string, optional): Description
 - `mask` (string, default "**/*.md"): File glob pattern
+
+### kb_index
+
+Index any source — a local folder or a GitHub repository. The source kind is
+auto-detected; an explicit `type` overrides detection.
+
+```json
+{
+  "source": "path:///home/me/projects/notes"
+}
+```
+
+```json
+{
+  "source": "https://github.com/fastapi/fastapi",
+  "description": "FastAPI web framework"
+}
+```
+
+**Parameters:**
+- `source` (string, required): Local folder (`path://<dir>` or a plain existing directory) or GitHub repo (`github://<owner>/<repo>` or a git URL). Also accepted as `url`, `path` or `folder`.
+- `type` (string, optional): Force the source kind: `"local"` or `"github"` (auto-detected otherwise)
+- `collection` (string, optional): Collection name override (local sources only; GitHub names come from the URL)
+- `tags` (list, optional): Optional tags
+- `description` (string, optional): Description
+- `mask` (string, default "**/*.md"): File glob pattern
+
+**Behavior:**
+- `local` — files are indexed straight from disk (no git). The collection is registered in config with `source_type: "local"` and `url: "path://<absolute path>"`; incremental reindexing resolves the folder from config.
+- `github` — the same flow as `kb_add_repo` (shallow clone, then index)
+- unknown sources return an error listing the supported kinds
 
 ### kb_collection_rename
 

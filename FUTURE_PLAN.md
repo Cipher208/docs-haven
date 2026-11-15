@@ -208,6 +208,21 @@ LLM summary from found chunks with citations.
 
 **Files:** storage.py (add add_local method), server.py (update kb_add_repo)
 
+**Status:** ✅ DONE (card P2-1) — `kb_index` shell + `Storage.add_local` landed: local folders index without git (`path://<dir>` or a plain directory), config entries carry `source_type: "local"` + `url: "path://<absolute path>"`, and reindex resolves local dirs from config. URL/text/PyPI/bookmarks stay later cards.
+
+**Open findings (P2-1 blind review; pre-existing at HEAD, each its own card):**
+- `check_stale` hash bug — `_check_file_stale` compares a full 64-char
+  sha256 against the stored 16-char `content_hash`, so it reports
+  `content_changed` for any file that exists (reproduced on a github
+  collection at pre-card HEAD).
+- `find_changed_docs` ignores the collection mask and sweeps `.git`
+  (`.git/config` becomes searchable after reindex). Mask-aware change
+  detection + dot-dir exclusion; user-visible now that local folders exist.
+- Error/docs polish — moved folder: `reindex_collection` answers
+  "Repository not found" for a folder; re-running `kb_index` after a file
+  deletion leaves the old doc searchable until reindex (parity with
+  `add_repo` — needs one doc line).
+
 ### 9. URL/Web Page Indexing
 
 `kb_index("https://docs.python.org/3/library/asyncio.html")`
