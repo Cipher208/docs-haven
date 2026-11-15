@@ -28,12 +28,15 @@ from uri import VALID_DOMAINS as _VALID_DOMAINS
 from validation import (
     _MAX_SEARCH_LIMIT,
     parse_since,
+    text_slug,
     validate_collection,
     validate_file_mask,
+    validate_http_url,
     validate_limit,
     validate_local_dir,
     validate_query,
     validate_since,
+    validate_text_content,
     validate_topic,
     validate_url,
 )
@@ -149,6 +152,23 @@ def auto_strategy(query: str) -> str:
     return "hybrid"
 
 
+def split_collection_path(path: str) -> tuple[str | None, str]:
+    """Split a "collection/file_path" reference into (collection, file_path).
+
+    The first "/"-segment is taken as a collection only when it contains no
+    ":" (collection names match ^[a-zA-Z0-9_-]+$ per validate_collection, so
+    a colon can never appear in one). Scheme-bearing paths like
+    "text://<slug>-<hash>" therefore stay whole file_paths instead of being
+    mis-split into collection "text:" + path "/x". Plain
+    "collection/relative/path.md" splits exactly as before; a path with no
+    "/" returns (None, path).
+    """
+    parts = path.split("/", 1)
+    if len(parts) == 2 and parts[0] and ":" not in parts[0]:
+        return parts[0], parts[1]
+    return None, path
+
+
 def _resolve_row(row: object, default_chunk: int | None) -> tuple[str, str, int | None] | None:
     """Resolve (collection, file_path, chunk_index) from a search-style result row.
 
@@ -169,9 +189,14 @@ def _resolve_row(row: object, default_chunk: int | None) -> tuple[str, str, int 
     collection = row.get("collection") if isinstance(row.get("collection"), str) else None
     file_path = row.get("file_path") if isinstance(row.get("file_path"), str) else None
     if not file_path and isinstance(row.get("path"), str):
-        parts = row["path"].split("/", 1)
-        if len(parts) == 2:
-            collection, file_path = parts
+        path_collection, path_file = split_collection_path(row["path"])
+        if path_collection is not None:
+            collection, file_path = path_collection, path_file
+        elif "/" in row["path"]:
+            # scheme-bearing whole path (text://...) — no collection segment in
+            # the path; keep the row's collection and take the path as file_path
+            file_path = path_file
+        # else: unsplit path carries no identity — unchanged, resolve to None
     if not collection or not file_path:
         return None
     chunk = row.get("chunk", row.get("chunk_index", default_chunk))
@@ -452,6 +477,18 @@ class Storage:
             )
         """)
 
+    def _create_bookmarks_table(self, conn: sqlite3.Connection) -> None:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bookmarks (
+                id INTEGER PRIMARY KEY,
+                url TEXT NOT NULL UNIQUE,
+                title TEXT DEFAULT '',
+                note TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
     def _init_db(self) -> None:
         conn = self._conn
         assert conn is not None, "_init_db called before connection established"
@@ -465,6 +502,7 @@ class Storage:
         except sqlite3.OperationalError:
             pass
         self._create_imported_chunks_table(conn)
+        self._create_bookmarks_table(conn)
         conn.commit()
 
     @staticmethod
@@ -652,6 +690,114 @@ class Storage:
         self._save_config(config)
 
         return Ok(value={"name": name, "status": _ACTION_ADDED, "files_indexed": indexed, "chunks": total_chunks})
+
+    def add_text(
+        self,
+        content: str,
+        title: str | None = None,
+        collection: str = "notes",
+        tags: list[str] | None = None,
+        description: str | None = None,
+    ) -> Ok[dict] | Err:
+        """Index a plain-text note directly (card P2-2) — no source folder.
+
+        The note is chunked with the shared chunker (auto_chunk, same as
+        _index_file) and lands in the documents projection, so it is searchable
+        and corpus-cache tracked like any indexed file (BH-4: this write path
+        invalidates the corpus cache on every exit). file_path is
+        content-addressed — text://<slug from title>-<content_hash (sha256,
+        first 16 hex of content)> — so re-adding identical content is an
+        idempotent replace of the same document (same file_path even when the
+        title differs) and different content gets a different file_path unless
+        two contents collide on sha256[:16]. The replace DELETE is additionally
+        scoped by content_hash, so any residual file_path collision surfaces as
+        a visible UNIQUE error instead of silent loss; a replace also preserves
+        created_at and retrieval_count like update_document.
+
+        Title: an explicit title wins; otherwise the first non-empty line of
+        the content (trimmed, max 80 chars); content with no non-empty line
+        falls back to "note-<hash>" (FUTURE_PLAN item 10: title from first line
+        or hash). description is stored in the documents context column, the
+        same mapping _index_file uses for a source's description. tags are
+        accepted for add_local/add_repo signature parity but not persisted: the
+        documents schema has no tag column (tags live in source config entries;
+        P3-15 Tags M2M is their future home).
+        """
+        content_error = validate_text_content(content)
+        if content_error:
+            return Err(error=content_error)
+        coll_error = validate_collection(collection)
+        if coll_error:
+            return Err(error=f"Invalid collection name: {coll_error}")
+
+        content_hash = self._compute_file_hash(content)
+        final_title = (title or "").strip()
+        if not final_title:
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped:
+                    final_title = stripped[:80]
+                    break
+            else:
+                final_title = f"note-{content_hash[:8]}"
+        file_path = f"text://{text_slug(final_title)}-{content_hash}"
+
+        chunks = auto_chunk(content, file_path) or [content]
+        conn = self._get_conn()
+        try:
+            # Content identity: a note with identical content already in this
+            # collection keeps its file_path, so re-adding is a replace even
+            # when the caller's title changed.
+            prior = conn.execute(
+                "SELECT file_path FROM documents WHERE collection = ? AND content_hash = ? "
+                "AND file_path LIKE 'text://%' ORDER BY chunk_index LIMIT 1",
+                (collection, content_hash),
+            ).fetchone()
+            if prior is not None:
+                file_path = prior["file_path"]
+            # F-4: a replace preserves created_at / retrieval_count across the
+            # rewrite (min/max over the replaced rows, like update_document).
+            old_rows = conn.execute(
+                "SELECT created_at, retrieval_count FROM documents WHERE collection = ? AND file_path = ? AND content_hash = ?",
+                (collection, file_path, content_hash),
+            ).fetchall()
+            created_at = min((r["created_at"] for r in old_rows if r["created_at"]), default=None)
+            retrieval_count = max((r["retrieval_count"] or 0 for r in old_rows), default=0)
+            # F-2: the delete is scoped by content_hash too — a same-path row
+            # with different content is NOT replaced; the INSERT below then
+            # hits the UNIQUE(collection, file_path, chunk_index) constraint and
+            # surfaces it as Err instead of silently dropping the other note.
+            existed = (
+                conn.execute(
+                    "DELETE FROM documents WHERE collection = ? AND file_path = ? AND content_hash = ?",
+                    (collection, file_path, content_hash),
+                ).rowcount
+                > 0
+            )
+            for i, chunk in enumerate(chunks):
+                conn.execute(
+                    """INSERT INTO documents
+                    (collection, file_path, content, content_hash, title, context,
+                     chunk_index, total_chunks, retrieval_count, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                    (collection, file_path, chunk, content_hash, final_title, description or "", i, len(chunks), retrieval_count, created_at),
+                )
+            conn.commit()
+            return Ok(
+                value={
+                    "collection": collection,
+                    "file_path": file_path,
+                    "title": final_title,
+                    "status": "replaced" if existed else "added",
+                    "chunks": len(chunks),
+                }
+            )
+        except sqlite3.Error as e:
+            conn.rollback()  # F-2: a failed multi-chunk replace leaves no pending rows
+            logger.debug("Add text failed: %s", e)
+            return Err(error=str(e))
+        finally:
+            self._invalidate_corpus_cache()
 
     def _resolve_collection_dir(self, collection: str) -> Path:
         """Resolve the source directory for a collection.
@@ -904,12 +1050,19 @@ class Storage:
         conn = self._get_conn()
         try:
             for path in paths:
-                parts = path.split("/", 1)
-                if len(parts) == 2:
-                    collection, file_path = parts
+                collection, file_path = split_collection_path(path)
+                if collection is not None:
                     conn.execute(
                         "UPDATE documents SET retrieval_count = retrieval_count + 1 WHERE collection = ? AND file_path = ?",
                         (collection, file_path),
+                    )
+                elif "/" in path:
+                    # scheme-bearing whole path (e.g. text://...) — there is no
+                    # collection segment to scope to; count by file_path alone
+                    # (unchanged: a bare name without "/" still counts nothing)
+                    conn.execute(
+                        "UPDATE documents SET retrieval_count = retrieval_count + 1 WHERE file_path = ?",
+                        (file_path,),
                     )
             conn.commit()
         except sqlite3.Error as e:
@@ -1485,12 +1638,13 @@ class Storage:
     def _invalidate_corpus_cache(self) -> None:
         """Drop the in-memory corpus cache; the next read rebuilds from SQLite.
 
-        Called from every document-mutating method (insert/index, update,
-        delete, bulk insert, remove/rename collection, reindex) on all exits —
-        success, error and early return alike — so a partial mutation can never
-        be served stale. Deliberately NOT called for retrieval_count updates,
-        judgments, contexts and import markers: they do not change the
-        _load_documents projection, and retrieval counting runs inside
+        Called from every document-mutating method (insert/index, add_text,
+        update, delete, bulk insert, remove/rename collection, reindex) on all
+        exits — success, error and early return alike — so a partial mutation
+        can never be served stale. Deliberately NOT called for retrieval_count
+        updates, judgments, contexts, import markers and bookmarks: they do not
+        change the _load_documents projection (bookmarks live in their own
+        table and carry no content), and retrieval counting runs inside
         search (_track_retrieval). Invalidation is instance-scoped: a second Storage
         over the same data dir does not see this instance's invalidations
         (documented limitation, FUTURE_PLAN N4). Rebuilds are lock-guarded
@@ -1996,6 +2150,67 @@ class Storage:
             return Ok(value={"status": "removed", "collection": collection})
         except sqlite3.Error as e:
             logger.debug("Remove context failed: %s", e)
+            return Err(error=str(e))
+
+    # ── Bookmarks (card P2-2) ────────────────────────────────────────────────
+
+    def bookmark_upsert(self, url: str, title: str | None = None, note: str | None = None) -> Ok[dict] | Err:
+        """Create or update a bookmark keyed by UNIQUE(url) (card P2-2).
+
+        A repeat save updates title/note/updated_at and preserves created_at;
+        title=None / note=None leave the stored value untouched (the upsert IS
+        the edit — pass "" to clear a field). The id doubles as a recency
+        sequence: every save allocates the next id (the update bumps it), so
+        bookmark_list's "most recent first" order is exact even within one wall
+        clock tick (~16ms granularity on Windows); the column defaults match
+        the approved DDL.
+
+        Deliberately OUTSIDE the documents projection: no corpus-cache
+        invalidation here — bookmarks carry no content and never enter search.
+        """
+        url = url.strip()  # normalize the UNIQUE(url) key (F-6)
+        url_error = validate_http_url(url)
+        if url_error:
+            return Err(error=url_error)
+        conn = self._get_conn()
+        try:
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+            existing = conn.execute("SELECT id FROM bookmarks WHERE url = ?", (url,)).fetchone()
+            if existing is None:
+                conn.execute(
+                    "INSERT INTO bookmarks (url, title, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (url, title or "", note or "", now, now),
+                )
+                created = True
+            else:
+                # Bump id to the next sequence value: id carries write
+                # recency so "most recent first" breaks timestamp ties exactly.
+                conn.execute(
+                    "UPDATE bookmarks SET title = COALESCE(?, title), note = COALESCE(?, note), updated_at = ?, "
+                    "id = (SELECT MAX(id) FROM bookmarks) + 1 WHERE url = ?",
+                    (title, note, now, url),
+                )
+                created = False
+            conn.commit()
+            return Ok(value={"url": url, "created": created})
+        except sqlite3.Error as e:
+            logger.debug("Bookmark upsert failed: %s", e)
+            return Err(error=str(e))
+
+    def bookmark_list(self) -> Ok[list[dict]] | Err:
+        """All bookmarks, most recent first (updated_at DESC).
+
+        id DESC breaks ties exactly — id is a recency sequence (every save
+        allocates the next id). Returns dicts shaped
+        {url, title, note, created_at, updated_at}. No corpus-cache hooks —
+        bookmarks are outside the documents projection.
+        """
+        conn = self._get_conn()
+        try:
+            rows = conn.execute("SELECT url, title, note, created_at, updated_at FROM bookmarks ORDER BY updated_at DESC, id DESC").fetchall()
+            return Ok(value=[dict(r) for r in rows])
+        except sqlite3.Error as e:
+            logger.debug("Bookmark list failed: %s", e)
             return Err(error=str(e))
 
     # ── Incremental Embedding ────────────────────────────────────────────────

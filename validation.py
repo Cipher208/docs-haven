@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 _MAX_QUERY_LENGTH = 10000
+_MAX_CONTENT_LENGTH = 10_000_000  # the repo's content-size precedent: kb_update caps content at 10MB (server.py)
 _MAX_FTS5_TOKENS = 100
 _MAX_SEARCH_LIMIT = 1000
 _VALID_URL_SCHEMES = ("https://", "http://", "git@")
@@ -41,6 +42,63 @@ def _validate_url_domain(url: str) -> str | None:
                 return f"Domain not allowed: {domain}"
     except (ValueError, AttributeError):
         pass
+    return None
+
+
+def validate_text_content(content: str) -> str | None:
+    """Validate raw text content for note indexing (Storage.add_text).
+
+    Size cap reuses the repo's content-size precedent: kb_update caps its
+    content argument at 10MB (server.py) — the same 10_000_000 chars applies.
+    """
+    if not content:
+        return "Text content cannot be empty"
+    if len(content) > _MAX_CONTENT_LENGTH:
+        return f"Text content too long (max {_MAX_CONTENT_LENGTH} chars)"
+    return None
+
+
+def text_slug(title: str) -> str:
+    """Slug for text:// note file paths: lowercase, non-alnum -> '-', trimmed.
+
+    An empty result falls back to "note" so file paths stay non-empty.
+    """
+    slug = "".join(c if c.isalnum() else "-" for c in title.lower())
+    return slug.strip("-") or "note"
+
+
+def validate_http_url(url: str) -> str | None:
+    """Validate a bookmark URL — web links are http(s) only.
+
+    Based on validate_url's checks (scheme allowlist, 2048-char cap, dangerous
+    characters) minus the git-specific parts: no git@ scheme and no git-host
+    domain allowlist — bookmarks point at arbitrary web pages, not clone
+    targets. Adds a host requirement: a bare scheme is not a link. The input
+    is stripped and the scheme is matched case-insensitively (RFC 3986:
+    schemes are case-insensitive), so " https://ok.com " and
+    "HTTPS://EXAMPLE.COM" validate while dangerous schemes are rejected even
+    when spelled in a different case (JavaScript://...).
+    """
+    url = url.strip()
+    if not url:
+        return "URL cannot be empty"
+    if not url.lower().startswith(("http://", "https://")):
+        return f"Invalid URL scheme (http/https only): {url}"
+    if len(url) > 2048:
+        return "URL too long (max 2048 chars)"
+    # validate_url's dangerous set minus shell-quoting metacharacters: bookmarks
+    # are stored, not executed — and '&' is a legitimate query-string separator.
+    dangerous_chars = set("\n\r\t<>")
+    if any(c in url for c in dangerous_chars):
+        return "URL contains dangerous characters"
+    from urllib.parse import urlparse
+
+    try:
+        host = urlparse(url).hostname
+    except ValueError:
+        return f"Invalid URL: {url}"
+    if not host:
+        return "URL must include a host"
     return None
 
 

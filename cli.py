@@ -8,7 +8,7 @@ import sys
 from typing import Any
 
 from server import _ERR_INVALID_PATH, _is_unsafe_path
-from storage import Storage
+from storage import Storage, split_collection_path
 from uri import URIRouter
 
 _ERR_NOT_FOUND = "not found"
@@ -189,8 +189,8 @@ def cmd_delete(args: argparse.Namespace) -> None:
         print(f"{_ERR_PREFIX} {_ERR_INVALID_PATH}")
         sys.exit(1)
 
-    if "/" in file_path:
-        collection, path = file_path.split("/", 1)
+    collection, path = split_collection_path(file_path)
+    if collection is not None:
         result = _unwrap_or_exit(storage.delete_documents_scoped(path, collection), "delete")
         print(f"Deleted: {collection}/{result['file_path']}")
     else:
@@ -211,8 +211,8 @@ def cmd_get(args: argparse.Namespace) -> None:
         print(f"{_ERR_PREFIX} {_ERR_INVALID_PATH}")
         sys.exit(1)
 
-    if "/" in file_path:
-        collection, path = file_path.split("/", 1)
+    collection, path = split_collection_path(file_path)
+    if collection is not None:
         result = _unwrap_or_exit(storage.get(path, collection=collection), "get")
     else:
         result = _unwrap_or_exit(storage.get(file_path), "get")

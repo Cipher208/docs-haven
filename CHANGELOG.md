@@ -7,10 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- **Plain text note indexing (P2-2)** — `Storage.add_text` indexes pasted text as a searchable document (shared chunker, corpus-cache-hooked write path — BH-4); `kb_index` gains a text mode (`text://<title>` or `type="text"`, `content=` required; `content=` on file sources errors). The file path is content-addressed (`text://<slug>-<sha256[:16] of content>`), so identical content re-added is an idempotent replace (created_at / retrieval_count preserved) and different content gets a different path unless two contents collide on sha256[:16] (the replace delete is content_hash-scoped, so a residual collision surfaces as a visible UNIQUE error). Title: explicit → first content line (80 chars) → `note-<hash>`.
+- **Bookmarks (P2-2)** — new owner-approved `bookmarks` table (outside the documents projection: no content indexing, no corpus-cache hooks) with MCP tools `kb_bookmark` (upsert keyed by URL — the upsert IS the edit; `created_at` preserved) and `kb_bookmarks` (list, most recent first). http(s)-only URLs validated by `validate_http_url`. MCP tools 30 → 32; tests 449 → 508 (+59 anchors).
 - **Local folder indexing + `kb_index` unified entry (P2-1)** — `Storage.add_local` indexes a local folder without git (default mask `**/*.md`), registering `source_type: "local"` and `url: "path://<absolute path>"` in config; incremental reindex and stale checks resolve local dirs from config. New MCP tool `kb_index` auto-detects local vs GitHub sources (`type` overrides detection) and delegates GitHub sources to the existing `kb_add_repo` flow. MCP tools 29 → 30; tests 424 → 449 (+25 anchors).
 
 ### Changed
-- **Docs** — documentation synced with measured reality: MCP reference covered all 29 tools of that sync (30 since `kb_index` above), CLI reference matches all 13 commands, and stale counts (tests, coverage, benchmarks) were re-measured and corrected.
+- **Docs** — documentation synced with measured reality: MCP reference covered all 29 tools of that sync (32 as of the P2-1/P2-2 entries above), CLI reference matches all 13 commands, and stale counts (tests, coverage, benchmarks) were re-measured and corrected.
 
 ### Removed
 - **alias.py** — never wired, dead since v0.8.0; hot MCP parameters now accept common argument aliases natively via pydantic AliasChoices.

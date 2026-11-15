@@ -175,9 +175,10 @@ LLM summary from found chunks with citations.
   `find_related`/`learn_topic` now read the corpus through a per-Storage
   invalidated in-memory cache (`_cached_documents`): one `_load_documents`
   load per mutation epoch instead of per call. The cache is dropped on every
-  document-mutating path (insert/index, update, delete, bulk insert,
-  remove/rename collection, reindex, sync import); SQLite stays the single
-  source of truth. Resident memory is still O(corpus) — fine for local
+  document-mutating path (insert/index, add_text, update, delete, bulk insert,
+  remove/rename collection, reindex, sync import); bookmarks are deliberately
+  outside this list — their table is not part of the documents projection.
+  SQLite stays the single source of truth. Resident memory is still O(corpus) — fine for local
   libraries — and invalidation is instance-scoped (a second Storage over the
   same data dir serves its own cache until its own rebuild). Rebuilds are
   lock-guarded (BH-9): the lazy rebuild region and invalidation share one
@@ -247,6 +248,8 @@ LLM summary from found chunks with citations.
 
 **Files:** storage.py (add add_text method), cli.py (add --text flag)
 
+**Status:** ✅ DONE (card P2-2) — `Storage.add_text` + `kb_index` text mode (`text://<title>` or `type="text"`, `content=` required) landed: notes chunk with the shared chunker into the documents projection (fully searchable, corpus-cache-hooked writes), file paths are content-addressed (`text://<slug>-<sha256[:16] of content>` — identical content re-added is an idempotent replace, different content gets a different path unless two contents collide on sha256[:16]), and the title comes from the first line or hash exactly as specced. The CLI `--text` flag is an explicit non-goal of P2-2 and stays on the CLI card.
+
 ### 11. PyPI Package Indexing
 
 `kb_index("pypi://fastapi")`
@@ -270,6 +273,25 @@ LLM summary from found chunks with citations.
 - Lightweight — no content indexing, just URL + metadata
 
 **Files:** storage.py (add bookmarks table), server.py (add tools)
+
+**Status:** ✅ DONE (card P2-2) — owner-approved `bookmarks` table (separate from documents, no content indexing), `kb_bookmark` upsert keyed by UNIQUE(url) — the upsert IS the edit (repeat saves update title/note/updated_at, `created_at` preserved) — and `kb_bookmarks` listing most recent first. http(s)-only URLs validated by `validate_http_url`. Deliberately outside the documents projection: bookmark writes carry no corpus-cache hooks, and searching bookmarks through `kb_search` is out of scope (they carry no content).
+
+**Open findings (P2-2 blind review, 2 rounds; each its own card):**
+- No transactional rollback repo-wide — `grep rollback` was empty: a
+  multi-statement write failing mid-way leaves partial rows that a later
+  commit on the same connection can persist (reproduced on
+  `update_document`, pre-existing). `add_text` got its rollback in P2-2's
+  fix round; remaining multi-statement write paths need
+  `BEGIN IMMEDIATE` + `conn.rollback()` in `except`.
+- Cold-start concurrency — first parallel calls on a fresh Storage can
+  surface `sqlite3.OperationalError: database is locked` (PRAGMA setup in
+  `_get_conn()` runs before the try/finally); pre-existing, loud but
+  non-lossy.
+- Bookmark URL case-folding — the UNIQUE key is whitespace-normalized but
+  not case-folded: `https://dup.com/a` and `HTTPS://DUP.COM/a` become two
+  rows (RFC 3986: scheme+host are case-insensitive).
+- Cosmetic — whitespace-only note titles double the hash
+  (`text://note-<hash8>-<hash16>`); harmless.
 
 ---
 

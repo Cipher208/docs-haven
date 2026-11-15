@@ -5,6 +5,7 @@ import logging
 import threading
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import unquote
 
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import AliasChoices, Field
@@ -13,7 +14,7 @@ from conflicts import ConflictDetector
 from import_guard import check_imports
 from llm import build_answer_prompt, extract_keywords, host_complete
 from result import Err
-from storage import Storage, resolve_chunk
+from storage import Storage, resolve_chunk, split_collection_path
 from sync import Syncer, get_username
 from uri import URIRouter
 from validation import validate_question, validate_url
@@ -26,7 +27,11 @@ _ERR_INVALID_PATH = "Invalid file path"
 # kb_index source schemes and auto-detection
 _LOCAL_PREFIX = "path://"
 _GITHUB_PREFIX = "github://"
-_SUPPORTED_KINDS = "local folder (path://<dir> or an existing directory) or GitHub repo (github://<owner>/<repo> or a git URL)"
+_TEXT_PREFIX = "text://"
+_SUPPORTED_KINDS = (
+    "local folder (path://<dir> or an existing directory), GitHub repo (github://<owner>/<repo> or a git URL), "
+    "or plain text (text://<title> with content=)"
+)
 
 mcp = FastMCP("docs-haven")
 
@@ -265,13 +270,16 @@ async def kb_add_repo(
 
 
 def _classify_source(source: str, explicit: str | None) -> tuple[str, str] | Err:
-    """Classify a kb_index source into ("local"|"github", normalized target).
+    """Classify a kb_index source into ("local"|"github"|"text", normalized target).
 
     An explicit type always wins; without one, a path:// URI or an existing
-    local directory is local, a github:// URI or a valid git URL is github.
+    local directory is local, a github:// URI or a valid git URL is github, and
+    a text:// URI is a plain-text note. For text the target is the note title:
+    the percent-decoded remainder after the scheme (empty = derive from the
+    content), or the bare source when type="text" names it directly.
     """
     kind = explicit.strip().lower() if explicit else None
-    if kind is not None and kind not in ("local", "github"):
+    if kind is not None and kind not in ("local", "github", "text"):
         return Err(error=f"Unknown source type: {explicit}. Supported kinds: {_SUPPORTED_KINDS}")
 
     target = source
@@ -281,11 +289,16 @@ def _classify_source(source: str, explicit: str | None) -> tuple[str, str] | Err
     elif source.startswith(_GITHUB_PREFIX):
         target = f"https://github.com/{source[len(_GITHUB_PREFIX) :]}"
         kind = kind or "github"
+    elif source.startswith(_TEXT_PREFIX):
+        target = unquote(source[len(_TEXT_PREFIX) :]).strip()
+        kind = kind or "text"
 
     if kind == "local":
         return "local", target
     if kind == "github":
         return "github", target
+    if kind == "text":
+        return "text", target.strip()
     # auto-detection: an existing directory is local, a valid git URL is github
     if "\x00" not in target and Path(target).is_dir():
         return "local", target
@@ -298,25 +311,27 @@ def _classify_source(source: str, explicit: str | None) -> tuple[str, str] | Err
 async def kb_index(
     source: Annotated[str, Field(validation_alias=AliasChoices("source", "url", "path", "folder"))],
     type: str | None = None,
+    content: str | None = None,
     collection: str | None = None,
     tags: list[str] | None = None,
     description: str | None = None,
     mask: str | None = None,
 ) -> dict:
-    """Index a source into the knowledge base — local folder or GitHub repo.
+    """Index a source into the knowledge base — local folder, GitHub repo or plain text.
 
     Auto-detects the source kind: a path:// URI or an existing local directory
     indexes files straight from disk (no git); a github:// URI or a git URL
-    clones and delegates to the kb_add_repo flow. An explicit type overrides
-    detection.
+    clones and delegates to the kb_add_repo flow; a text:// URI indexes the
+    passed content= as a note. An explicit type overrides detection.
 
     Args:
-        source: Local folder (path://<dir> or a plain existing directory) or GitHub repo (github://<owner>/<repo> or a git URL); also accepted as 'url', 'path' or 'folder'
-        type: Force the source kind: "local" or "github" (optional; auto-detected otherwise)
-        collection: Collection name override (local sources only; GitHub names come from the URL)
+        source: Local folder (path://<dir> or a plain existing directory), GitHub repo (github://<owner>/<repo> or a git URL), or note title (text://<title>); also accepted as 'url', 'path' or 'folder'
+        type: Force the source kind: "local", "github" or "text" (optional; auto-detected otherwise)
+        content: Note text for text sources (required for text:// / type="text", rejected for file sources)
+        collection: Collection name override (local and text sources only; GitHub names come from the URL; text defaults to "notes")
         tags: Optional tags
         description: Optional description
-        mask: File pattern (default: **/*.md). Use **/*.rst for Sphinx, **/*.py for Python.
+        mask: File pattern (default: **/*.md). Use **/*.rst for Sphinx, **/*.py for Python. Not for text sources.
     """
     import asyncio
 
@@ -324,6 +339,23 @@ async def kb_index(
     if isinstance(classified, Err):
         return _unwrap(classified)
     kind, target = classified
+
+    if content is not None and kind != "text":
+        return _unwrap(Err(error='content= is only for text sources (text://<title> or type="text")'))
+
+    if kind == "text":
+        if content is None:
+            return _unwrap(Err(error="text sources require content="))
+        if mask is not None:
+            return _unwrap(Err(error="mask= is only for file sources (text notes have no files)"))
+        storage = _get_storage()
+        # Run blocking file IO in executor to avoid blocking event loop
+        loop = asyncio.get_running_loop()
+        call = functools.partial(
+            storage.add_text, content, title=target or None, collection=collection or "notes", tags=tags, description=description
+        )
+        result = await loop.run_in_executor(None, call)
+        return _unwrap(result)
 
     if kind == "github":
         if collection is not None:
@@ -341,6 +373,51 @@ async def kb_index(
     return _unwrap(result)
 
 
+# ── Bookmarks ───────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def kb_bookmark(
+    url: Annotated[str, Field(validation_alias=AliasChoices("url", "link", "href"))],
+    title: str | None = None,
+    note: str | None = None,
+) -> dict:
+    """Save or update a bookmark (web link with optional title/note).
+
+    Upsert semantics keyed by URL: re-saving updates title/note/updated_at and
+    preserves created_at. title=None / note=None keep the stored value (pass
+    "" to clear). Bookmarks are links only — no content indexing, nothing
+    enters search.
+
+    Args:
+        url: Web link (http/https only); also accepted as 'link' or 'href'
+        title: Optional display title (default: empty)
+        note: Optional free-text note (default: empty)
+    """
+    import asyncio
+
+    storage = _get_storage()
+    # Run blocking SQLite work in executor to avoid blocking event loop
+    loop = asyncio.get_running_loop()
+    call = functools.partial(storage.bookmark_upsert, url, title=title, note=note)
+    result = await loop.run_in_executor(None, call)
+    return _unwrap(result)
+
+
+@mcp.tool()
+async def kb_bookmarks() -> list[dict] | dict:
+    """List saved bookmarks, most recent first.
+
+    Each entry: {url, title, note, created_at, updated_at}.
+    """
+    import asyncio
+
+    storage = _get_storage()
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, storage.bookmark_list)
+    return _unwrap(result)
+
+
 @mcp.tool()
 async def kb_get(file_path: Annotated[str, Field(validation_alias=AliasChoices("file_path", "filePath", "documentId", "doc_path"))]) -> dict:
     """Get full content of a document.
@@ -353,9 +430,10 @@ async def kb_get(file_path: Annotated[str, Field(validation_alias=AliasChoices("
         return {"error": _ERR_INVALID_PATH}
 
     # Accept collection/file_path form (consistent with CLI get/delete).
-    parts = file_path.split("/", 1)
-    if len(parts) == 2 and parts[0]:
-        collection, path = parts
+    # The first segment is a collection only when it has no ':' — scheme-bearing
+    # paths (text://...) stay whole (split_collection_path).
+    collection, path = split_collection_path(file_path)
+    if collection is not None:
         result = _get_storage().get(path, collection=collection)
     else:
         result = _get_storage().get(file_path)

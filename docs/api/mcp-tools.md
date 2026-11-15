@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-DocsHaven exposes 30 MCP tools for knowledge base operations.
+DocsHaven exposes 32 MCP tools for knowledge base operations.
 
 ## Search & Retrieval
 
@@ -284,8 +284,8 @@ Clone and index a GitHub repository.
 
 ### kb_index
 
-Index any source — a local folder or a GitHub repository. The source kind is
-auto-detected; an explicit `type` overrides detection.
+Index any source — a local folder, a GitHub repository or plain text. The
+source kind is auto-detected; an explicit `type` overrides detection.
 
 ```json
 {
@@ -300,17 +300,26 @@ auto-detected; an explicit `type` overrides detection.
 }
 ```
 
+```json
+{
+  "source": "text://Meeting Notes",
+  "content": "Attendees: ...\nDecisions: ..."
+}
+```
+
 **Parameters:**
-- `source` (string, required): Local folder (`path://<dir>` or a plain existing directory) or GitHub repo (`github://<owner>/<repo>` or a git URL). Also accepted as `url`, `path` or `folder`.
-- `type` (string, optional): Force the source kind: `"local"` or `"github"` (auto-detected otherwise)
-- `collection` (string, optional): Collection name override (local sources only; GitHub names come from the URL)
+- `source` (string, required): Local folder (`path://<dir>` or a plain existing directory), GitHub repo (`github://<owner>/<repo>` or a git URL), or note title (`text://<title>`, percent-decoded). Also accepted as `url`, `path` or `folder`.
+- `type` (string, optional): Force the source kind: `"local"`, `"github"` or `"text"` (auto-detected otherwise)
+- `content` (string, optional): Note text — required for text sources, rejected for file sources
+- `collection` (string, optional): Collection name override (local and text sources only; GitHub names come from the URL; text defaults to `"notes"`)
 - `tags` (list, optional): Optional tags
 - `description` (string, optional): Description
-- `mask` (string, default "**/*.md"): File glob pattern
+- `mask` (string, default "**/*.md"): File glob pattern. Not for text sources.
 
 **Behavior:**
 - `local` — files are indexed straight from disk (no git). The collection is registered in config with `source_type: "local"` and `url: "path://<absolute path>"`; incremental reindexing resolves the folder from config.
 - `github` — the same flow as `kb_add_repo` (shallow clone, then index)
+- `text` — `content=` is indexed as a note (`Storage.add_text`): chunked with the shared chunker and stored in the documents projection, so it is fully searchable. The file path is content-addressed (`text://<slug from title>-<sha256[:16] of content>`), so re-adding identical content is an idempotent replace. The title is the `text://` remainder (or `type="text"` source); an empty remainder derives the title from the first non-empty content line (hash fallback for whitespace-only content). Text sources require `content=`; passing `content=` with a file source is an error.
 - unknown sources return an error listing the supported kinds
 
 ### kb_collection_rename
@@ -345,6 +354,43 @@ JS/TS files are checked; other extensions report no imports).
 - `repo_root` (string, default "."): Repository root directory
 
 **Returns:** `{"imports": [...], "phantom_imports": [...], "status": "ok", "total_imports": 5, "phantom_count": 1}` (with `status` `file_not_found` / `read_error` on failure).
+
+## Bookmarks
+
+Bookmarks are web links with optional metadata. They are deliberately outside
+the documents projection: no content indexing, nothing enters search, and
+bookmark writes never touch the corpus cache. There is no delete or edit tool —
+the upsert IS the edit.
+
+### kb_bookmark
+
+Save or update a bookmark, keyed by URL.
+
+```json
+{
+  "url": "https://docs.python.org/3/library/asyncio.html",
+  "title": "asyncio — async I/O",
+  "note": "come back for the TaskGroup section"
+}
+```
+
+**Parameters:**
+- `url` (string, required): Web link (http/https only). Also accepted as `link` or `href`.
+- `title` (string, optional): Display title (default: empty)
+- `note` (string, optional): Free-text note (default: empty)
+
+**Behavior:**
+- Re-saving an existing URL updates `title`/`note`/`updated_at` and preserves `created_at`.
+- `title`/`note` omitted on a re-save keep the stored value; pass `""` to clear a field.
+- Non-http(s) schemes, empty values and URLs without a host return an error.
+
+**Returns:** `{"url": "...", "created": true}` — `created` is false when an existing bookmark was updated.
+
+### kb_bookmarks
+
+List saved bookmarks, most recent first.
+
+**Returns:** `[{"url", "title", "note", "created_at", "updated_at"}, ...]` — ordered by `updated_at` descending (exact write order within one clock tick).
 
 ## URI Routing
 
