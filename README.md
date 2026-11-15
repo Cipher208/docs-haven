@@ -6,7 +6,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/Cipher208/docs-haven)](https://github.com/Cipher208/docs-haven/commits/main)
 [![CI](https://img.shields.io/github/actions/workflow/status/Cipher208/docs-haven/ci.yml?branch=main)](https://github.com/Cipher208/docs-haven/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen)](https://codecov.io/gh/Cipher208/docs-haven)
+[![Coverage](https://img.shields.io/badge/coverage-87%25-brightgreen)](https://codecov.io/gh/Cipher208/docs-haven)
 
 > **Your AI agent keeps forgetting what it learned last session. DocsHaven fixes that.**
 
@@ -25,7 +25,7 @@
 - **URI routing** — organize knowledge by domain: `core://`, `ref://`, `guide://`
 - **Git sync** — compressed chunks for multi-machine sync (no merge conflicts)
 - **Conflict detection** — flag contradictions when adding documents
-- **Source indexing** — GitHub repos, local folders and web pages through one `kb_index` entry
+- **Source indexing** — GitHub repos, local folders, web pages and PyPI package docs through one `kb_index` entry
 - **MCP server** — 32 tools for any MCP-compatible agent
 - **Document chunking** — split long documents for better search precision
 - **Result type** — Pydantic v2 models with Ok/Err pattern
@@ -222,7 +222,7 @@ Then ask your agent:
 | `kb_recent` | Recently accessed documents |
 | `kb_learn` | Topic exploration: collections, key docs, learning path |
 | `kb_add_repo` | Clone and index a GitHub repo |
-| `kb_index` | Index any source — local folder, GitHub repo, web page or plain text (auto-detect) |
+| `kb_index` | Index any source — local folder, GitHub repo, web page, plain text or PyPI package docs (auto-detect) |
 | `kb_bookmark` | Save/update a bookmark (URL + title/note) |
 | `kb_bookmarks` | List bookmarks, most recent first |
 | `kb_get` | Get document content |
@@ -316,7 +316,7 @@ docs-haven/
 ├── templates.py     # Collection templates
 ├── import_guard.py  # Import validation
 ├── benchmark.py     # Performance benchmarks
-├── tests/           # pytest test suite (571 tests)
+├── tests/           # pytest test suite (609 tests)
 ├── docs/            # Documentation + 10 ADRs
 └── pyproject.toml   # Package config (uv)
 ```

@@ -31,12 +31,14 @@ from validation import (
     domain_slug,
     normalize_http_url,
     parse_since,
+    pypi_slug,
     text_slug,
     validate_collection,
     validate_file_mask,
     validate_http_url,
     validate_limit,
     validate_local_dir,
+    validate_pypi_name,
     validate_query,
     validate_since,
     validate_text_content,
@@ -944,6 +946,115 @@ class Storage:
         finally:
             self._invalidate_corpus_cache()
 
+    def add_pypi(
+        self,
+        package: str,
+        docs: list[dict],
+        collection: str | None = None,
+        tags: list[str] | None = None,
+        description: str | None = None,
+    ) -> Ok[dict] | Err:
+        """Index extracted PyPI documentation (card P2-4).
+
+        Seam decision (mirrors add_url): takes ALREADY-EXTRACTED docs —
+        pypi.fetch_pypi_docs owns all network/archive I/O, keeping the storage
+        layer hermetic. Each doc ({path, title, text}) is chunked with the
+        shared chunker and lands in the documents projection, so it is
+        searchable and corpus-cache tracked like any indexed file (BH-4: this
+        write path invalidates the corpus cache on every exit). Identity is
+        pypi://<package>/<sdist-relative path>.
+
+        Replace semantics: ONE transaction replaces every existing row of the
+        collection whose file_path starts with pypi:// (the URL-style full
+        replace scoped to the collection) — a re-index whose new sdist dropped
+        a doc removes that doc's rows — while surviving paths keep their
+        created_at and retrieval_count (P2-2 F-4). P2-H discipline: a failed
+        transaction rolls back, so a mid-failure leaves nothing.
+
+        collection defaults to the slugified package name (pypi_slug:
+        "Test-Pkg" -> "test-pkg"); collection= overrides. Result shape like
+        add_url minus file_path (many docs): {collection, docs_indexed,
+        chunks, status}. tags are accepted for add_* signature parity but not
+        persisted (the documents schema has no tag column; P3-15).
+        description is stored in each document's context column like the
+        other add_* paths.
+        """
+        name_error = validate_pypi_name(package)
+        if name_error:
+            return Err(error=name_error)
+        package = package.strip()
+        coll = collection or pypi_slug(package)
+        coll_error = validate_collection(coll)
+        if coll_error:
+            return Err(error=f"Invalid collection name: {coll_error}")
+
+        prepared: list[tuple[str, str, str, list[str]]] = []  # (file_path, title, text, chunks)
+        for doc in docs:
+            rel = str(doc.get("path", ""))
+            text = str(doc.get("text", ""))
+            # file_path minting boundary: fetch_pypi_docs' unpack already
+            # guarantees safe relpaths, but add_pypi mints the identity and
+            # must not create documents kb_get's path guard would reject.
+            if not rel or ".." in rel or rel.startswith(("/", "\\")) or "\\" in rel or "\x00" in rel:
+                return Err(error=f"Unsafe doc path in extracted docs: {rel}")
+            text_error = validate_text_content(text)
+            if text_error:
+                return Err(error=f"{rel}: {text_error}")
+            file_path = f"pypi://{package}/{rel}"
+            title = str(doc.get("title", "")).strip() or rel
+            chunks = auto_chunk(text, file_path) or [text]
+            prepared.append((file_path, title, text, chunks))
+
+        conn = self._get_conn()
+        try:
+            # F-4: a replace preserves created_at / retrieval_count per
+            # surviving file_path (min/max over that path's rows).
+            old_rows = conn.execute(
+                "SELECT file_path, created_at, retrieval_count FROM documents WHERE collection = ? AND file_path LIKE 'pypi://%'",
+                (coll,),
+            ).fetchall()
+            prior: dict[str, tuple[str | None, int]] = {}
+            for r in old_rows:
+                created, retrieval = prior.get(r["file_path"], (None, 0))
+                if r["created_at"] and (created is None or r["created_at"] < created):
+                    created = r["created_at"]
+                prior[r["file_path"]] = (created, max(retrieval, r["retrieval_count"] or 0))
+            existed = (
+                conn.execute(
+                    "DELETE FROM documents WHERE collection = ? AND file_path LIKE 'pypi://%'",
+                    (coll,),
+                ).rowcount
+                > 0
+            )
+            total_chunks = 0
+            for file_path, title, text, chunks in prepared:
+                content_hash = self._compute_file_hash(text)
+                created_at, retrieval_count = prior.get(file_path, (None, 0))
+                for i, chunk in enumerate(chunks):
+                    conn.execute(
+                        """INSERT INTO documents
+                        (collection, file_path, content, content_hash, title, context,
+                         chunk_index, total_chunks, retrieval_count, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                        (coll, file_path, chunk, content_hash, title, description or "", i, len(chunks), retrieval_count, created_at),
+                    )
+                total_chunks += len(chunks)
+            conn.commit()
+            return Ok(
+                value={
+                    "collection": coll,
+                    "docs_indexed": len(prepared),
+                    "chunks": total_chunks,
+                    "status": "replaced" if existed else "added",
+                }
+            )
+        except sqlite3.Error as e:
+            conn.rollback()  # P2-H: a failed replace leaves no pending rows
+            logger.debug("Add pypi failed: %s", e)
+            return Err(error=str(e))
+        finally:
+            self._invalidate_corpus_cache()
+
     def _resolve_collection_dir(self, collection: str) -> Path:
         """Resolve the source directory for a collection.
 
@@ -1789,7 +1900,7 @@ class Storage:
         """Drop the in-memory corpus cache; the next read rebuilds from SQLite.
 
         Called from every document-mutating method (insert/index, add_text,
-        add_url, update, delete, bulk insert, remove/rename collection,
+        add_url, add_pypi, update, delete, bulk insert, remove/rename collection,
         reindex) on all
         exits — success, error and early return alike — so a partial mutation
         can never be served stale. Deliberately NOT called for retrieval_count

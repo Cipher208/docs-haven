@@ -14,6 +14,7 @@ from conflicts import ConflictDetector
 from fetcher import fetch_url
 from import_guard import check_imports
 from llm import build_answer_prompt, extract_keywords, host_complete
+from pypi import fetch_pypi_docs
 from result import Err, Ok
 from storage import Storage, resolve_chunk, split_collection_path
 from sync import Syncer, get_username
@@ -29,10 +30,11 @@ _ERR_INVALID_PATH = "Invalid file path"
 _LOCAL_PREFIX = "path://"
 _GITHUB_PREFIX = "github://"
 _TEXT_PREFIX = "text://"
+_PYPI_PREFIX = "pypi://"
 _SUPPORTED_KINDS = (
     "local folder (path://<dir> or an existing directory), GitHub repo (github://<owner>/<repo> or a git URL), "
     'web page (any other http(s) URL, fetched and indexed as extracted text; type "url"/"web" forces it), '
-    "or plain text (text://<title> with content=)"
+    'plain text (text://<title> with content=), or PyPI package docs (pypi://<name> or type "pypi"; latest release)'
 )
 
 mcp = FastMCP("docs-haven")
@@ -297,20 +299,23 @@ def _is_repo_shaped(target: str) -> bool:
 
 
 def _classify_source(source: str, explicit: str | None) -> tuple[str, str] | Err:
-    """Classify a kb_index source into ("local"|"github"|"url"|"text", normalized target).
+    """Classify a kb_index source into ("local"|"github"|"url"|"text"|"pypi", normalized target).
 
     An explicit type always wins ("web" is an alias for "url"); without one, a
     path:// URI or an existing local directory is local, a github:// URI or a
     repo-shaped git URL is github, any other http(s) URL is a web page fetched
-    and indexed via fetcher.fetch_url, and a text:// URI is a plain-text note.
-    For text the target is the note title: the percent-decoded remainder after
-    the scheme (empty = derive from the content), or the bare source when
-    type="text" names it directly.
+    and indexed via fetcher.fetch_url, a text:// URI is a plain-text note, and
+    a pypi:// URI is PyPI package docs (latest release). For text the target
+    is the note title: the percent-decoded remainder after the scheme (empty =
+    derive from the content), or the bare source when type="text" names it
+    directly. For pypi the target is the bare package name (the scheme
+    remainder, or the source itself when type="pypi" names it directly) — a
+    bare name is NEVER auto-detected as a package.
     """
     kind = explicit.strip().lower() if explicit else None
     if kind == "web":
         kind = "url"
-    if kind is not None and kind not in ("local", "github", "text", "url"):
+    if kind is not None and kind not in ("local", "github", "text", "url", "pypi"):
         return Err(error=f"Unknown source type: {explicit}. Supported kinds: {_SUPPORTED_KINDS}")
 
     target = source
@@ -323,6 +328,9 @@ def _classify_source(source: str, explicit: str | None) -> tuple[str, str] | Err
     elif source.startswith(_TEXT_PREFIX):
         target = unquote(source[len(_TEXT_PREFIX) :]).strip()
         kind = kind or "text"
+    elif source.startswith(_PYPI_PREFIX):
+        target = source[len(_PYPI_PREFIX) :].strip()
+        kind = kind or "pypi"
 
     if kind == "local":
         return "local", target
@@ -332,6 +340,8 @@ def _classify_source(source: str, explicit: str | None) -> tuple[str, str] | Err
         return "url", target
     if kind == "text":
         return "text", target.strip()
+    if kind == "pypi":
+        return "pypi", target.strip()
     # auto-detection: an existing directory is local, a repo-shaped git URL is
     # github (P2-1 behavior), any other valid http(s) URL is a web page
     if "\x00" not in target and Path(target).is_dir():
@@ -358,6 +368,19 @@ def _fetch_and_add_url(
     return storage.add_url(page["url"], page["text"], title=page["title"], collection=collection, tags=tags, description=description)
 
 
+def _fetch_and_add_pypi(
+    storage: Storage, package: str, collection: str | None = None, tags: list[str] | None = None, description: str | None = None
+) -> Ok[dict] | Err:
+    """Fetch a package's sdist docs and index them (blocking — executor thread).
+
+    The kb_add_repo precedent: the network download runs off the event loop.
+    """
+    fetched = fetch_pypi_docs(package)
+    if isinstance(fetched, Err):  # DH-2 lesson: isinstance narrows, .is_err does not
+        return fetched
+    return storage.add_pypi(package, fetched.value, collection=collection, tags=tags, description=description)
+
+
 @mcp.tool()
 async def kb_index(
     source: Annotated[str, Field(validation_alias=AliasChoices("source", "url", "path", "folder"))],
@@ -368,23 +391,25 @@ async def kb_index(
     description: str | None = None,
     mask: str | None = None,
 ) -> dict:
-    """Index a source into the knowledge base — local folder, GitHub repo, web page or plain text.
+    """Index a source into the knowledge base — local folder, GitHub repo, web page, plain text or PyPI package docs.
 
     Auto-detects the source kind: a path:// URI or an existing local directory
     indexes files straight from disk (no git); a github:// URI or a repo-shaped
     git URL clones and delegates to the kb_add_repo flow; any other http(s) URL
     is fetched and indexed as a web page (extracted visible text; identity =
     the final URL, collection = the slugified domain); a text:// URI indexes
-    the passed content= as a note. An explicit type overrides detection.
+    the passed content= as a note; a pypi:// URI indexes the package's latest
+    sdist docs (README* + docs/ from the downloaded sdist; pip is deliberately
+    NOT used). An explicit type overrides detection.
 
     Args:
-        source: Local folder (path://<dir> or a plain existing directory), GitHub repo (github://<owner>/<repo> or a repo-shaped git URL), web page (any other http(s) URL), or note title (text://<title>); also accepted as 'url', 'path' or 'folder'
-        type: Force the source kind: "local", "github", "url" (alias "web") or "text" (optional; auto-detected otherwise)
+        source: Local folder (path://<dir> or a plain existing directory), GitHub repo (github://<owner>/<repo> or a repo-shaped git URL), web page (any other http(s) URL), note title (text://<title>), or PyPI package name (pypi://<name>); also accepted as 'url', 'path' or 'folder'
+        type: Force the source kind: "local", "github", "url" (alias "web"), "text" or "pypi" (optional; auto-detected otherwise)
         content: Note text for text sources (required for text:// / type="text", rejected for other sources)
-        collection: Collection name override (local, web and text sources only; GitHub names come from the URL; text defaults to "notes", web pages to the slugified domain)
+        collection: Collection name override (local, web, text and pypi sources only; GitHub names come from the URL; text defaults to "notes", web pages to the slugified domain, packages to the slugified package name)
         tags: Optional tags
         description: Optional description
-        mask: File pattern (default: **/*.md). Use **/*.rst for Sphinx, **/*.py for Python. Not for text or web sources.
+        mask: File pattern (default: **/*.md). Use **/*.rst for Sphinx, **/*.py for Python. Not for text, web or pypi sources.
     """
     import asyncio
 
@@ -417,6 +442,16 @@ async def kb_index(
         # Run blocking fetch+index in executor to avoid blocking event loop
         loop = asyncio.get_running_loop()
         call = functools.partial(_fetch_and_add_url, storage, target, collection=collection, tags=tags, description=description)
+        result = await loop.run_in_executor(None, call)
+        return _unwrap(result)
+
+    if kind == "pypi":
+        if mask is not None:
+            return _unwrap(Err(error="mask= is only for file sources (packages are downloaded as whole archives)"))
+        storage = _get_storage()
+        # Run blocking download+unpack+index in executor to avoid blocking event loop
+        loop = asyncio.get_running_loop()
+        call = functools.partial(_fetch_and_add_pypi, storage, target, collection=collection, tags=tags, description=description)
         result = await loop.run_in_executor(None, call)
         return _unwrap(result)
 

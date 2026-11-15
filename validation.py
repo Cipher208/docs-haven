@@ -12,6 +12,9 @@ _MAX_SEARCH_LIMIT = 1000
 _VALID_URL_SCHEMES = ("https://", "http://", "git@")
 _ALLOWED_GIT_DOMAINS = {"github.com", "gitlab.com", "bitbucket.org", "codeberg.org"}
 _COLLECTION_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+# PEP 508 package-name grammar: letter_or_digit (letter_or_digit | '-' | '_' | '.')*
+# letter_or_digit — rejects empty, "../../etc", slashes and spaces.
+_PYPI_NAME_PATTERN = re.compile(r"^[A-Z0-9](?:[A-Z0-9._-]*[A-Z0-9])?$", re.IGNORECASE)
 
 
 def validate_url(url: str) -> str | None:
@@ -81,6 +84,27 @@ def domain_slug(url: str) -> str:
 
     slug = re.sub(r"[^a-z0-9]", "-", urlsplit(url).netloc.lower())
     return slug.strip("-") or "web"
+
+
+def validate_pypi_name(name: str) -> str | None:
+    """Validate a PyPI package name against the PEP 508 identifier grammar."""
+    if not name or not name.strip():
+        return "Package name cannot be empty"
+    if not _PYPI_NAME_PATTERN.match(name.strip()):
+        return f"Invalid PyPI package name: {name}"
+    return None
+
+
+def pypi_slug(package_name: str) -> str:
+    """Default collection for an indexed PyPI package (card P2-4).
+
+    The slugified package name: lowercased, non-alnum -> '-' (the text_slug
+    rule), so "Test-Pkg" -> "test-pkg". validate_collection-safe by
+    construction (_COLLECTION_PATTERN is [a-zA-Z0-9_-]); an empty result
+    falls back to "pypi" (validate_pypi_name guarantees a name in practice).
+    """
+    slug = re.sub(r"[^a-z0-9]", "-", package_name.lower())
+    return slug.strip("-") or "pypi"
 
 
 def validate_http_url(url: str) -> str | None:

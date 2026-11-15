@@ -19,7 +19,7 @@ docs-haven/
 ├── import_guard.py  # Import validation — phantom import checks
 ├── cli.py           # CLI interface — 13 commands
 ├── benchmark.py     # Performance benchmarks
-└── tests/           # pytest test suite (571 tests)
+└── tests/           # pytest test suite (609 tests)
 ```
 
 ## Data Flow

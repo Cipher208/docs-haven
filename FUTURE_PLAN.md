@@ -253,7 +253,9 @@ LLM summary from found chunks with citations.
 - Index markdown/rst files
 - Store as collection with package name
 
-**Files:** storage.py (add add_pypi method), server.py (add tool)
+**Files:** storage.py (add add_pypi method), pypi.py (new, download/extract layer), server.py (kb_index pypi mode)
+
+**Status:** ✅ DONE (card P2-4) — `Storage.add_pypi` + `kb_index` pypi mode (`pypi://<name>` or `type="pypi"` with a bare package name) landed as decided: **latest release only** (`pypi://pkg==1.2` is out); **stdlib unpack** (urllib + `tarfile`/`zipfile`) — the plan text's `pip download` is superseded because **pip is deliberately not used** (uv venvs ship no pip); README*/docs* extracted nearly raw (no rst rendering). Identity `pypi://<name>/<relpath>`, collection = slugified package name; re-index replaces the collection's `pypi://` rows in one transaction (created_at/retrieval_count preserved per surviving path, P2-H rollback). Unpack safety: tar `filter="data"` (tar-slip), zip member validation. Artifact cap 40MB — derived ×4 of the 10MB content precedent (documented as derived in CHANGELOG). No new tool (kb_index mode; tools stay 32).
 
 ### 12. Bookmark / Fav List
 
@@ -280,7 +282,15 @@ LLM summary from found chunks with citations.
   chunk payload, so two exports straddling the boundary miss dedup;
 - a `text://` note stored in a *file* collection is reported `deleted`
   and purged by reindex (file collections have no notes on disk to match;
-  same class as the items above).
+  same class as the items above);
+- P2-4 replace is collection-scoped: indexing pkg-b into a shared
+  `collection=` silently destroys pkg-a's `pypi://` rows (the TZ said
+  "all pypi:// rows of the collection" — spec-compliant but sharp);
+  identity also keeps raw package case, so `Test-Pkg` re-index loses the
+  F-4 preservation. Follow-up: scope delete to `pypi://<package>/%` and
+  case-normalize per PEP 503;
+- P2-4 fetch-side empty-text docs are skipped without an anchor
+  (storage-side Err is anchored).
 
 ---
 
