@@ -139,7 +139,7 @@ async def kb_ask(
         context=context if context is not None else [],
         expand=True,
     )
-    if result.is_err:
+    if isinstance(result, Err):
         return _unwrap(result)
 
     chunks = []

@@ -26,7 +26,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
-      - run: uv tool install ruff
+      - run: uv tool install ruff==0.17.5
       - run: ruff check .
       - run: ruff format --check .
 
@@ -41,7 +41,7 @@ jobs:
         with:
           version: "latest"
       - run: uv sync --extra test
-      - run: uv pip install mypy
+      - run: uv pip install mypy==2.4.1
       - run: uv run python -m mypy uri.py storage.py validation.py chunking.py scoring.py sync.py conflicts.py server.py --ignore-missing-imports
 
   test:
