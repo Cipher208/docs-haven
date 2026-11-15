@@ -43,6 +43,26 @@
 - ✅ Security hardening — decompression bomb, connection leak, thread-local connections, SHA pinning
 - ✅ Code quality — 59/59 review issues, storage.py split into validation/chunking/scoring
 
+### Maintenance & Quality Sprint (2026-11-12 – 11-15)
+
+- ✅ Scoped update/delete semantics — kb_update/kb_delete hit exact rows
+  (ghost-row bug fixed: update no longer creates rows with an empty
+  collection); delete is idempotent-Ok on zero matches
+- ✅ Native argument aliases — dead `alias.py` deleted, hot tools use
+  pydantic `AliasChoices` (see Rejected)
+- ✅ Row-shape resilience — `resolve_chunk()` so kb_ask survives
+  vector/expansion-only rows (was `KeyError: 'file_path'`)
+- ✅ Corpus cache + thread lock — per-call corpus load replaced by
+  mutation-invalidated cache (N4 below); rebuilds lock-guarded (BH-9)
+- ✅ Vector citations fixed — search rows carry `chunk_index` (citations
+  pointed at chunk 0)
+- ✅ Lint/format baseline zero + CI tool pins (ruff==0.17.5, mypy==2.4.1;
+  unpinned CI tools had drifted red on unchanged code)
+- ✅ Stale CODE_METRICS.md removed (unregenerable without its tool)
+- ✅ Test suite 330 → 424 green; 20+ blind review rounds
+- ⏳ mcp 2.x migration — deliberately deferred (2.x renames
+  `mcp.server.fastmcp`; pinned `<2` until its own card)
+
 ---
 
 ## P1: Smart Search — kb_ask + Agent Tools
@@ -505,4 +525,4 @@ Automated index backups.
 
 ---
 
-*Last updated: 2026-11-14*
+*Last updated: 2026-11-15*
