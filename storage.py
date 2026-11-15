@@ -28,6 +28,7 @@ from scoring import _query_terms, _token_set, importance_boost, lexical_relevanc
 from uri import VALID_DOMAINS as _VALID_DOMAINS
 from validation import (
     _MAX_SEARCH_LIMIT,
+    domain_slug,
     normalize_http_url,
     parse_since,
     text_slug,
@@ -845,6 +846,100 @@ class Storage:
         except sqlite3.Error as e:
             conn.rollback()  # F-2: a failed multi-chunk replace leaves no pending rows
             logger.debug("Add text failed: %s", e)
+            return Err(error=str(e))
+        finally:
+            self._invalidate_corpus_cache()
+
+    def add_url(
+        self,
+        url: str,
+        text: str,
+        title: str | None = None,
+        collection: str | None = None,
+        tags: list[str] | None = None,
+        description: str | None = None,
+    ) -> Ok[dict] | Err:
+        """Index an extracted web page as a URL-identified document (card P2-3).
+
+        Seam decision: this method takes ALREADY-EXTRACTED text —
+        fetcher.fetch_url owns all network I/O (and its extraction), keeping
+        the storage layer hermetic and the fetch policy in one module. The
+        text is chunked with the shared chunker (auto_chunk in text mode —
+        extension-based code chunking makes no sense for a URL identity) and
+        lands in the documents projection, so it is searchable and
+        corpus-cache tracked like any indexed file (BH-4: this write path
+        invalidates the corpus cache on every exit).
+
+        Identity is the URL itself (NOT content hash): file_path is the final
+        normalized URL (normalize_http_url), so re-indexing the same URL
+        REPLACES all its chunks even when the new content has fewer — the
+        delete is scoped by (collection, file_path) only, unlike add_text's
+        content_hash-scoped delete (there the hash is the identity; here the
+        URL is). A replace preserves created_at and retrieval_count like
+        update_document (the P2-2 F-4 lesson). Collection defaults to the
+        slugified netloc (domain_slug: docs.python.org -> "docs-python-org");
+        collection= overrides. Result shape matches add_text.
+
+        Title: the extracted page title (<title> else first <h1>, produced by
+        fetcher.fetch_url); without one the URL itself is the title. tags are
+        accepted for add_local/add_repo/add_text signature parity but not
+        persisted (the documents schema has no tag column; P3-15). description
+        is stored in the documents context column like the other add_* paths.
+        """
+        url_error = validate_http_url(url)
+        if url_error:
+            return Err(error=url_error)
+        text_error = validate_text_content(text)
+        if text_error:
+            return Err(error=text_error)
+        final_url = normalize_http_url(url)
+        name = collection or domain_slug(final_url)
+        name_error = validate_collection(name)
+        if name_error:
+            return Err(error=f"Invalid collection name: {name_error}")
+        final_title = (title or "").strip() or final_url
+        content_hash = self._compute_file_hash(text)
+        chunks = auto_chunk(text) or [text]
+        conn = self._get_conn()
+        try:
+            # F-4: a replace preserves created_at / retrieval_count across the
+            # rewrite (min/max over the replaced rows, like update_document).
+            old_rows = conn.execute(
+                "SELECT created_at, retrieval_count FROM documents WHERE collection = ? AND file_path = ?",
+                (name, final_url),
+            ).fetchall()
+            created_at = min((r["created_at"] for r in old_rows if r["created_at"]), default=None)
+            retrieval_count = max((r["retrieval_count"] or 0 for r in old_rows), default=0)
+            # URL identity: the delete is NOT content_hash-scoped — every old
+            # chunk goes, so a shrinking page leaves no stale rows.
+            existed = (
+                conn.execute(
+                    "DELETE FROM documents WHERE collection = ? AND file_path = ?",
+                    (name, final_url),
+                ).rowcount
+                > 0
+            )
+            for i, chunk in enumerate(chunks):
+                conn.execute(
+                    """INSERT INTO documents
+                    (collection, file_path, content, content_hash, title, context,
+                     chunk_index, total_chunks, retrieval_count, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+                    (name, final_url, chunk, content_hash, final_title, description or "", i, len(chunks), retrieval_count, created_at),
+                )
+            conn.commit()
+            return Ok(
+                value={
+                    "collection": name,
+                    "file_path": final_url,
+                    "title": final_title,
+                    "status": "replaced" if existed else "added",
+                    "chunks": len(chunks),
+                }
+            )
+        except sqlite3.Error as e:
+            conn.rollback()  # H-1: a failed multi-chunk replace leaves no pending rows
+            logger.debug("Add url failed: %s", e)
             return Err(error=str(e))
         finally:
             self._invalidate_corpus_cache()
@@ -1694,7 +1789,8 @@ class Storage:
         """Drop the in-memory corpus cache; the next read rebuilds from SQLite.
 
         Called from every document-mutating method (insert/index, add_text,
-        update, delete, bulk insert, remove/rename collection, reindex) on all
+        add_url, update, delete, bulk insert, remove/rename collection,
+        reindex) on all
         exits — success, error and early return alike — so a partial mutation
         can never be served stale. Deliberately NOT called for retrieval_count
         updates, judgments, contexts, import markers and bookmarks: they do not

@@ -25,7 +25,7 @@
 - **URI routing** — organize knowledge by domain: `core://`, `ref://`, `guide://`
 - **Git sync** — compressed chunks for multi-machine sync (no merge conflicts)
 - **Conflict detection** — flag contradictions when adding documents
-- **Source indexing** — GitHub repos and local folders through one `kb_index` entry
+- **Source indexing** — GitHub repos, local folders and web pages through one `kb_index` entry
 - **MCP server** — 32 tools for any MCP-compatible agent
 - **Document chunking** — split long documents for better search precision
 - **Result type** — Pydantic v2 models with Ok/Err pattern
@@ -222,7 +222,7 @@ Then ask your agent:
 | `kb_recent` | Recently accessed documents |
 | `kb_learn` | Topic exploration: collections, key docs, learning path |
 | `kb_add_repo` | Clone and index a GitHub repo |
-| `kb_index` | Index any source — local folder, GitHub repo or plain text (auto-detect) |
+| `kb_index` | Index any source — local folder, GitHub repo, web page or plain text (auto-detect) |
 | `kb_bookmark` | Save/update a bookmark (URL + title/note) |
 | `kb_bookmarks` | List bookmarks, most recent first |
 | `kb_get` | Get document content |
@@ -316,7 +316,7 @@ docs-haven/
 ├── templates.py     # Collection templates
 ├── import_guard.py  # Import validation
 ├── benchmark.py     # Performance benchmarks
-├── tests/           # pytest test suite (532 tests)
+├── tests/           # pytest test suite (571 tests)
 ├── docs/            # Documentation + 10 ADRs
 └── pyproject.toml   # Package config (uv)
 ```

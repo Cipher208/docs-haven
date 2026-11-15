@@ -67,6 +67,22 @@ def text_slug(title: str) -> str:
     return slug.strip("-") or "note"
 
 
+def domain_slug(url: str) -> str:
+    """Default collection for an indexed web page (card P2-3).
+
+    The slugified netloc: lowercased, non-alnum -> '-' per the card spec
+    (docs.python.org -> "docs-python-org"). validate_collection rejects dots,
+    so every dot becomes a dash. The port is part of netloc and stays in the
+    slug — pages served from different ports on one host land in different
+    collections. An empty result falls back to "web" (validate_http_url
+    guarantees a host in practice).
+    """
+    from urllib.parse import urlsplit
+
+    slug = re.sub(r"[^a-z0-9]", "-", urlsplit(url).netloc.lower())
+    return slug.strip("-") or "web"
+
+
 def validate_http_url(url: str) -> str | None:
     """Validate a bookmark URL — web links are http(s) only.
 

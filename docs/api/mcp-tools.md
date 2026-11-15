@@ -284,8 +284,8 @@ Clone and index a GitHub repository.
 
 ### kb_index
 
-Index any source — a local folder, a GitHub repository or plain text. The
-source kind is auto-detected; an explicit `type` overrides detection.
+Index any source — a local folder, a GitHub repository, a web page or plain text. The source kind is auto-detected; an explicit `type`
+overrides detection.
 
 ```json
 {
@@ -307,21 +307,38 @@ source kind is auto-detected; an explicit `type` overrides detection.
 }
 ```
 
+```json
+{
+  "source": "https://docs.python.org/3/library/asyncio.html",
+  "description": "asyncio stdlib docs"
+}
+```
+
 **Parameters:**
-- `source` (string, required): Local folder (`path://<dir>` or a plain existing directory), GitHub repo (`github://<owner>/<repo>` or a git URL), or note title (`text://<title>`, percent-decoded). Also accepted as `url`, `path` or `folder`.
-- `type` (string, optional): Force the source kind: `"local"`, `"github"` or `"text"` (auto-detected otherwise)
-- `content` (string, optional): Note text — required for text sources, rejected for file sources
-- `collection` (string, optional): Collection name override (local and text sources only; GitHub names come from the URL; text defaults to `"notes"`)
+- `source` (string, required): Local folder (`path://<dir>` or a plain existing directory), GitHub repo (`github://<owner>/<repo>` or a repo-shaped git URL), web page (any other http(s) URL), or note title (`text://<title>`, percent-decoded). Also accepted as `url`, `path` or `folder`.
+- `type` (string, optional): Force the source kind: `"local"`, `"github"`, `"url"` (alias `"web"`) or `"text"` (auto-detected otherwise)
+- `content` (string, optional): Note text — required for text sources, rejected for other sources
+- `collection` (string, optional): Collection name override (local, web and text sources only; GitHub names come from the URL; text defaults to `"notes"`, web pages to the slugified domain)
 - `tags` (list, optional): Optional tags
 - `description` (string, optional): Description
-- `mask` (string, default "**/*.md"): File glob pattern. Not for text sources.
+- `mask` (string, default "**/*.md"): File glob pattern. Not for text or web sources.
 
 **Behavior:**
 - `local` — files are indexed straight from disk (no git). The collection is registered in config with `source_type: "local"` and `url: "path://<absolute path>"`; incremental reindexing resolves the folder from config.
-- `github` — the same flow as `kb_add_repo` (shallow clone, then index)
+- `github` — the same flow as `kb_add_repo` (shallow clone, then index). Repo-shaped means: `github://<owner>/<repo>`, `git@host:owner/repo.git`, or an http(s) URL on an allowed git host with at most 2 path segments (`owner/<repo>`, optional `.git`). A path ending in `.git` is repo-shaped at ANY depth (GitLab subgroup repos like `gitlab.com/group/subgroup/proj.git` clone instead of fetching the HTML page).
+- `url` (alias `web`) — any other http(s) URL is fetched and indexed as a web page (card P2-3). The visible text is extracted with the stdlib `html.parser` (title from `<title>`, falling back to the first `<h1>`; `<script>`/`<style>`/`<noscript>`/`<nav>`/`<footer>`/`<header>`/`<aside>` subtrees are stripped entirely; block-level newlines, `<pre>` preserved). Deeper git-host URLs (e.g. `github.com/owner/repo/blob/main/README.md`) name pages inside a repo and route here too. Identity is the URL itself: the file path is the final normalized post-redirect URL (max 3 redirect hops, every hop re-validated as http(s) — no scheme downgrades), so re-indexing the same URL replaces all its chunks — even when the new page has fewer — while preserving `created_at` and `retrieval_count`. URLs differing only in `#fragment` are distinct identities (fragments are kept in the normalized URL) — known behavior. The collection defaults to the slugified domain (`docs.python.org` → `docs-python-org`; the port stays in the slug), `collection=` overrides. The response must be HTML (`text/html` / `application/xhtml+xml`, charset from the header, utf-8 fallback) and at most 10MB; the timeout is 10s and the fetch runs off the event loop. `robots.txt` is deliberately NOT consulted. Re-indexing a page is a full replace — it does not go through the file reindex flow.
 - `text` — `content=` is indexed as a note (`Storage.add_text`): chunked with the shared chunker and stored in the documents projection, so it is fully searchable. The file path is content-addressed (`text://<slug from title>-<sha256[:16] of content>`), so re-adding identical content is an idempotent replace. The title is the `text://` remainder (or `type="text"` source); an empty remainder derives the title from the first non-empty content line (hash fallback for whitespace-only content). Text sources require `content=`; passing `content=` with a file source is an error.
 - Incremental reindex is mask-aware (the collection's stored mask — new entries always persist it; a legacy entry without the key keeps the pre-card `**/*` detection): changed files are rewritten, deleted files drop their documents, and mask-mismatched or dot-path rows are purged on reindex. The dot-path rule is broad by design: it excludes dot-FILES as well as dot-directories (`.readme.md`; even an explicit `.docs/*.md` mask indexes 0 files). Re-running `kb_index` over an already-indexed folder refreshes matching files but does not remove documents of deleted files until a reindex (parity with `kb_add_repo`).
 - unknown sources return an error listing the supported kinds
+
+**Security note (residual SSRF surface, by design):** git-clone URLs are gated
+by `validate_url`'s domain allowlist (the 59-issue review's SSRF fix — clones
+can only target the public git hosts). A web-page fetch is only validated as
+http(s): `kb_index(url)` fetches anything the host machine can reach, including
+loopback and internal addresses. This is accepted for a local-first tool run
+by its owner — arbitrary web pages are the feature, and a host allowlist would
+defeat it. Mitigations that do apply: per-hop redirect scheme re-validation,
+the 10MB response cap, HTML-only content, and a fixed timeout.
 
 ### kb_collection_rename
 

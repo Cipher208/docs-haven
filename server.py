@@ -11,13 +11,14 @@ from mcp.server.fastmcp import Context, FastMCP
 from pydantic import AliasChoices, Field
 
 from conflicts import ConflictDetector
+from fetcher import fetch_url
 from import_guard import check_imports
 from llm import build_answer_prompt, extract_keywords, host_complete
-from result import Err
+from result import Err, Ok
 from storage import Storage, resolve_chunk, split_collection_path
 from sync import Syncer, get_username
 from uri import URIRouter
-from validation import validate_question, validate_url
+from validation import validate_http_url, validate_question, validate_url
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("docs-haven")
@@ -30,6 +31,7 @@ _GITHUB_PREFIX = "github://"
 _TEXT_PREFIX = "text://"
 _SUPPORTED_KINDS = (
     "local folder (path://<dir> or an existing directory), GitHub repo (github://<owner>/<repo> or a git URL), "
+    'web page (any other http(s) URL, fetched and indexed as extracted text; type "url"/"web" forces it), '
     "or plain text (text://<title> with content=)"
 )
 
@@ -269,17 +271,46 @@ async def kb_add_repo(
     return _unwrap(result)
 
 
-def _classify_source(source: str, explicit: str | None) -> tuple[str, str] | Err:
-    """Classify a kb_index source into ("local"|"github"|"text", normalized target).
+def _is_repo_shaped(target: str) -> bool:
+    """True when the URL names a whole git repository, not a page inside one.
 
-    An explicit type always wins; without one, a path:// URI or an existing
-    local directory is local, a github:// URI or a valid git URL is github, and
-    a text:// URI is a plain-text note. For text the target is the note title:
-    the percent-decoded remainder after the scheme (empty = derive from the
-    content), or the bare source when type="text" names it directly.
+    Repo-shaped (P2-1 routing preserved): a URL that passes validate_url —
+    scheme plus the SSRF git-host allowlist from the 59-issue review — with at
+    most 2 path segments (owner/<repo>, optional .git, trailing slash
+    tolerated); a URL whose path ends in `.git` is repo-shaped at ANY depth
+    (gitlab.com/group/subgroup/proj.git is a repo, not a page); a
+    git@host:owner/repo.git URL has no URL path and is always
+    repo-shaped. DEEPER URLs (github.com/owner/repo/blob/main/README.md) name
+    pages INSIDE a repo and route to web fetch instead (card P2-3).
+    """
+    if validate_url(target) is not None:
+        return False
+    if target.startswith("git@"):
+        return True
+    from urllib.parse import urlparse
+
+    path = urlparse(target).path
+    if path.rstrip("/").endswith(".git"):
+        return True
+    segments = [s for s in path.split("/") if s]
+    return len(segments) <= 2
+
+
+def _classify_source(source: str, explicit: str | None) -> tuple[str, str] | Err:
+    """Classify a kb_index source into ("local"|"github"|"url"|"text", normalized target).
+
+    An explicit type always wins ("web" is an alias for "url"); without one, a
+    path:// URI or an existing local directory is local, a github:// URI or a
+    repo-shaped git URL is github, any other http(s) URL is a web page fetched
+    and indexed via fetcher.fetch_url, and a text:// URI is a plain-text note.
+    For text the target is the note title: the percent-decoded remainder after
+    the scheme (empty = derive from the content), or the bare source when
+    type="text" names it directly.
     """
     kind = explicit.strip().lower() if explicit else None
-    if kind is not None and kind not in ("local", "github", "text"):
+    if kind == "web":
+        kind = "url"
+    if kind is not None and kind not in ("local", "github", "text", "url"):
         return Err(error=f"Unknown source type: {explicit}. Supported kinds: {_SUPPORTED_KINDS}")
 
     target = source
@@ -297,14 +328,34 @@ def _classify_source(source: str, explicit: str | None) -> tuple[str, str] | Err
         return "local", target
     if kind == "github":
         return "github", target
+    if kind == "url":
+        return "url", target
     if kind == "text":
         return "text", target.strip()
-    # auto-detection: an existing directory is local, a valid git URL is github
+    # auto-detection: an existing directory is local, a repo-shaped git URL is
+    # github (P2-1 behavior), any other valid http(s) URL is a web page
     if "\x00" not in target and Path(target).is_dir():
         return "local", target
-    if validate_url(target) is None:
+    if _is_repo_shaped(target):
         return "github", target
+    if validate_http_url(target) is None:
+        return "url", target
     return Err(error=f"Unsupported source: {source}. Supported kinds: {_SUPPORTED_KINDS}")
+
+
+def _fetch_and_add_url(
+    storage: Storage, url: str, collection: str | None = None, tags: list[str] | None = None, description: str | None = None
+) -> Ok[dict] | Err:
+    """Fetch a web page and index its extracted text (blocking — executor thread).
+
+    The kb_add_repo precedent: the network fetch runs off the event loop.
+    Identity is the FINAL post-redirect URL (fetcher.fetch_url reports it).
+    """
+    fetched = fetch_url(url)
+    if isinstance(fetched, Err):  # DH-2 lesson: isinstance narrows, .is_err does not
+        return fetched
+    page = fetched.value
+    return storage.add_url(page["url"], page["text"], title=page["title"], collection=collection, tags=tags, description=description)
 
 
 @mcp.tool()
@@ -317,21 +368,23 @@ async def kb_index(
     description: str | None = None,
     mask: str | None = None,
 ) -> dict:
-    """Index a source into the knowledge base — local folder, GitHub repo or plain text.
+    """Index a source into the knowledge base — local folder, GitHub repo, web page or plain text.
 
     Auto-detects the source kind: a path:// URI or an existing local directory
-    indexes files straight from disk (no git); a github:// URI or a git URL
-    clones and delegates to the kb_add_repo flow; a text:// URI indexes the
-    passed content= as a note. An explicit type overrides detection.
+    indexes files straight from disk (no git); a github:// URI or a repo-shaped
+    git URL clones and delegates to the kb_add_repo flow; any other http(s) URL
+    is fetched and indexed as a web page (extracted visible text; identity =
+    the final URL, collection = the slugified domain); a text:// URI indexes
+    the passed content= as a note. An explicit type overrides detection.
 
     Args:
-        source: Local folder (path://<dir> or a plain existing directory), GitHub repo (github://<owner>/<repo> or a git URL), or note title (text://<title>); also accepted as 'url', 'path' or 'folder'
-        type: Force the source kind: "local", "github" or "text" (optional; auto-detected otherwise)
-        content: Note text for text sources (required for text:// / type="text", rejected for file sources)
-        collection: Collection name override (local and text sources only; GitHub names come from the URL; text defaults to "notes")
+        source: Local folder (path://<dir> or a plain existing directory), GitHub repo (github://<owner>/<repo> or a repo-shaped git URL), web page (any other http(s) URL), or note title (text://<title>); also accepted as 'url', 'path' or 'folder'
+        type: Force the source kind: "local", "github", "url" (alias "web") or "text" (optional; auto-detected otherwise)
+        content: Note text for text sources (required for text:// / type="text", rejected for other sources)
+        collection: Collection name override (local, web and text sources only; GitHub names come from the URL; text defaults to "notes", web pages to the slugified domain)
         tags: Optional tags
         description: Optional description
-        mask: File pattern (default: **/*.md). Use **/*.rst for Sphinx, **/*.py for Python. Not for text sources.
+        mask: File pattern (default: **/*.md). Use **/*.rst for Sphinx, **/*.py for Python. Not for text or web sources.
     """
     import asyncio
 
@@ -354,6 +407,16 @@ async def kb_index(
         call = functools.partial(
             storage.add_text, content, title=target or None, collection=collection or "notes", tags=tags, description=description
         )
+        result = await loop.run_in_executor(None, call)
+        return _unwrap(result)
+
+    if kind == "url":
+        if mask is not None:
+            return _unwrap(Err(error="mask= is only for file sources (web pages have no files)"))
+        storage = _get_storage()
+        # Run blocking fetch+index in executor to avoid blocking event loop
+        loop = asyncio.get_running_loop()
+        call = functools.partial(_fetch_and_add_url, storage, target, collection=collection, tags=tags, description=description)
         result = await loop.run_in_executor(None, call)
         return _unwrap(result)
 
