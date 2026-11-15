@@ -316,7 +316,7 @@ docs-haven/
 ├── templates.py     # Collection templates
 ├── import_guard.py  # Import validation
 ├── benchmark.py     # Performance benchmarks
-├── tests/           # pytest test suite (508 tests)
+├── tests/           # pytest test suite (532 tests)
 ├── docs/            # Documentation + 10 ADRs
 └── pyproject.toml   # Package config (uv)
 ```

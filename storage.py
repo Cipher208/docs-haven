@@ -17,6 +17,7 @@ import shutil
 import sqlite3
 import subprocess
 import threading
+import time
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,7 @@ from scoring import _query_terms, _token_set, importance_boost, lexical_relevanc
 from uri import VALID_DOMAINS as _VALID_DOMAINS
 from validation import (
     _MAX_SEARCH_LIMIT,
+    normalize_http_url,
     parse_since,
     text_slug,
     validate_collection,
@@ -167,6 +169,14 @@ def split_collection_path(path: str) -> tuple[str | None, str]:
     if len(parts) == 2 and parts[0] and ":" not in parts[0]:
         return parts[0], parts[1]
     return None, path
+
+
+def _is_hidden_relpath(rel: str) -> bool:
+    """True when any path segment starts with '.' (H-4: dot-FILES as well as
+    dot-dirs — VCS/venv metadata like .git, but also .readme.md, is not
+    documentation). Filters the DISK side only: a stored hidden row is
+    reported deleted and purged on reindex like any mask mismatch (F-b)."""
+    return any(seg.startswith(".") for seg in rel.replace("\\", "/").split("/") if seg)
 
 
 def _resolve_row(row: object, default_chunk: int | None) -> tuple[str, str, int | None] | None:
@@ -378,6 +388,19 @@ class Storage:
             conn.close()
             self._local.conn = None
 
+    @staticmethod
+    def _pragma_with_retry(conn: sqlite3.Connection, pragma: str) -> None:
+        """Run one connection-setup PRAGMA with a single bounded retry on a
+        transient 'database is locked'/'busy' (H-2: the busy handler does not
+        cover every setup statement, notably the fresh-DB WAL switch)."""
+        try:
+            conn.execute(pragma)
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower() and "busy" not in str(e).lower():
+                raise
+            time.sleep(0.05)
+            conn.execute(pragma)
+
     def _get_conn(self) -> sqlite3.Connection:
         conn = getattr(self._local, "conn", None)
         if conn is not None:
@@ -388,12 +411,18 @@ class Storage:
                 pass
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
+        # H-2 (F-5): busy_timeout FIRST — the fresh-DB WAL switch below takes an
+        # exclusive lock, and parallel first-contact threads used to race it
+        # before any timeout was set, surfacing spurious 'database is locked'.
         conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute(f"PRAGMA cache_size=-{_CACHE_SIZE_KB}")
-        conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute(f"PRAGMA mmap_size={_MMAP_SIZE}")
+        for pragma in (
+            "PRAGMA journal_mode=WAL",
+            "PRAGMA synchronous=NORMAL",
+            f"PRAGMA cache_size=-{_CACHE_SIZE_KB}",
+            "PRAGMA temp_store=MEMORY",
+            f"PRAGMA mmap_size={_MMAP_SIZE}",
+        ):
+            self._pragma_with_retry(conn, pragma)
         self._local.conn = conn
         if not self._db_initialized:
             with self._init_lock:
@@ -403,6 +432,11 @@ class Storage:
                         self._init_db()
                         self._db_initialized = True
                     except sqlite3.Error:
+                        # Nothing pending to roll back: Python's implicit
+                        # transactions never wrap DDL — each CREATE/ALTER
+                        # autocommits — and the DDL is idempotent (CREATE ...
+                        # IF NOT EXISTS; the ALTER tolerates a duplicate
+                        # column), so retrying _init_db is the safety net.
                         self._conn = None  # type: ignore[assignment]
                         raise
                     finally:
@@ -578,6 +612,8 @@ class Storage:
         for f in repo_dir.glob(mask):
             if not f.is_file() or f.is_symlink():
                 continue
+            if _is_hidden_relpath(str(f.relative_to(repo_dir))):  # H-4: no dot-paths (dirs AND files)
+                continue
             try:
                 resolved = f.resolve()
                 if resolved != resolved_root and resolved_root not in resolved.parents:
@@ -598,10 +634,18 @@ class Storage:
                 try:
                     total_chunks += self._index_file(conn, f, repo_dir, collection, description)
                     indexed += 1
-                except (OSError, sqlite3.Error) as e:
+                except OSError as e:
+                    # H-1: OSError is file-specific and hits before any INSERT
+                    # (read/stat), so skipping is safe — no partial rows. A
+                    # sqlite3.Error is a batch-level failure and must persist
+                    # nothing: it escapes to the rollback below instead of being
+                    # skipped with a half-written file left behind.
                     logger.debug("Skipping %s: %s", f, e)
             conn.commit()
             return indexed, total_chunks
+        except sqlite3.Error:
+            conn.rollback()  # H-1: a failed index batch persists nothing
+            raise
         finally:
             self._invalidate_corpus_cache()
 
@@ -639,6 +683,7 @@ class Storage:
             "url": url,
             "tags": tags or [],
             "description": description or "",
+            "mask": file_mask,
             "files_indexed": indexed,
             "total_chunks": total_chunks,
         }
@@ -684,6 +729,7 @@ class Storage:
             "source_type": "local",
             "tags": tags or [],
             "description": description or "",
+            "mask": file_mask,
             "files_indexed": indexed,
             "total_chunks": total_chunks,
         }
@@ -717,7 +763,8 @@ class Storage:
         Title: an explicit title wins; otherwise the first non-empty line of
         the content (trimmed, max 80 chars); content with no non-empty line
         falls back to "note-<hash>" (FUTURE_PLAN item 10: title from first line
-        or hash). description is stored in the documents context column, the
+        or hash; the display title keeps the short hash but the file_path slug
+        is then plain "note" — H-6: no hash doubling). description is stored in the documents context column, the
         same mapping _index_file uses for a source's description. tags are
         accepted for add_local/add_repo signature parity but not persisted: the
         documents schema has no tag column (tags live in source config entries;
@@ -732,6 +779,7 @@ class Storage:
 
         content_hash = self._compute_file_hash(content)
         final_title = (title or "").strip()
+        hash_fallback = False
         if not final_title:
             for line in content.splitlines():
                 stripped = line.strip()
@@ -740,7 +788,9 @@ class Storage:
                     break
             else:
                 final_title = f"note-{content_hash[:8]}"
-        file_path = f"text://{text_slug(final_title)}-{content_hash}"
+                hash_fallback = True  # H-6: the title IS a hash — the slug must not embed it again
+        slug_source = "note" if hash_fallback else final_title
+        file_path = f"text://{text_slug(slug_source)}-{content_hash}"
 
         chunks = auto_chunk(content, file_path) or [content]
         conn = self._get_conn()
@@ -1066,6 +1116,7 @@ class Storage:
                     )
             conn.commit()
         except sqlite3.Error as e:
+            conn.rollback()  # H-1: a failed retrieval-count batch persists nothing
             logger.debug("Failed to update retrieval counts: %s", e)
 
     def _build_fts_sql(self, collections: list[str] | None) -> tuple[str, list]:
@@ -1294,6 +1345,7 @@ class Storage:
             conn.commit()
             return Ok(value={"status": "updated", "file_path": file_path, "collection": collection, "chunks": len(chunks)})
         except sqlite3.Error as e:
+            conn.rollback()  # H-1: a failed replace persists nothing (F-3 repro)
             logger.debug("Update failed: %s", e)
             return Err(error=str(e))
         finally:
@@ -1418,6 +1470,7 @@ class Storage:
             conn.commit()
             return Ok(value=len(documents))
         except sqlite3.Error as e:
+            conn.rollback()  # H-1: a failed bulk batch persists nothing
             logger.debug("Bulk insert failed: %s", e)
             return Err(error=str(e))
         finally:
@@ -1453,6 +1506,7 @@ class Storage:
 
             return Ok(value={"status": "removed", "collection": name, "documents": count})
         except sqlite3.Error as e:
+            conn.rollback()  # H-1: a failed removal persists nothing (no half-deleted collection)
             logger.debug("Remove collection failed: %s", e)
             return Err(error=str(e))
         finally:
@@ -1509,6 +1563,7 @@ class Storage:
 
             return Ok(value={"status": "renamed", "from": old_name, "to": new_name, "documents": count})
         except sqlite3.Error as e:
+            conn.rollback()  # H-1: a failed rename persists nothing (no half-renamed collection)
             logger.debug("Rename collection failed: %s", e)
             return Err(error=str(e))
         finally:
@@ -2047,8 +2102,13 @@ class Storage:
         if not file_path.exists():
             return {"file_path": str(file_path.relative_to(repo_dir)), "reason": "file_deleted"}
         try:
-            current_hash = hashlib.sha256(file_path.read_text(errors="ignore").encode()).hexdigest()
-            if current_hash != stored_hash:
+            # H-3: compare the same representation both sides — the stored
+            # content_hash is the 16-char sha256 prefix (_compute_file_hash),
+            # so the current hash is truncated too. Comparing a full 64-char
+            # digest against the stored prefix reported content_changed for
+            # ANY file that existed.
+            current_hash = hashlib.sha256(file_path.read_text(errors="ignore").encode()).hexdigest()[:16]
+            if current_hash != stored_hash[:16]:
                 return {"file_path": str(file_path.relative_to(repo_dir)), "reason": "content_changed"}
         except OSError:
             return None
@@ -2169,9 +2229,13 @@ class Storage:
         invalidation here — bookmarks carry no content and never enter search.
         """
         url = url.strip()  # normalize the UNIQUE(url) key (F-6)
+        # validate the raw form FIRST: validate_http_url rejects dangerous
+        # characters before any URL parsing (urllib silently strips newlines,
+        # so normalizing first would launder them past the check)
         url_error = validate_http_url(url)
         if url_error:
             return Err(error=url_error)
+        url = normalize_http_url(url)  # H-5: fold scheme+host case (RFC 3986) — one link, one row
         conn = self._get_conn()
         try:
             now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -2220,6 +2284,16 @@ class Storage:
 
         Returns list of {file_path, old_hash, new_hash, status} dicts.
         Status: 'changed', 'deleted', 'added'.
+
+        H-4: the file collection is the stored mask of the collection's config
+        entry; a missing "mask" key is a legacy (pre-H-4) entry and keeps the
+        pre-card **/* detection — new entries always persist their mask
+        (add_repo/add_local write the key unconditionally). Dot-path files are
+        never collected from disk: the rule covers dot-FILES as well as
+        dot-dirs (any segment starting with '.', e.g. .readme.md, or a .docs/
+        dir — even an explicit .docs/*.md mask indexes 0 files). F-b: a stored
+        dot-path row is reported deleted and purged on reindex — the same
+        treatment as a mask-mismatched row (symmetric, no frozen orphans).
         """
         conn = self._get_conn()
         try:
@@ -2231,12 +2305,18 @@ class Storage:
             if repo_dir is None:
                 repo_dir = self._resolve_collection_dir(collection)
 
+            entry = self._load_config().get("repos", {}).get(collection) or {}
+            mask = entry.get("mask") or "**/*"  # missing key = legacy entry = pre-card glob
+            # F-b: hidden rows stay in `stored` — a stored dot-path row is a
+            # pre-card leftover and must surface as deleted (then get purged),
+            # exactly like a mask-mismatched row. The hidden filter lives on
+            # the disk side only.
             stored = {r["file_path"]: r["content_hash"] for r in rows}
             current = (
                 {
                     str(f.relative_to(repo_dir)): self._compute_file_hash(f.read_text(errors="ignore"))
-                    for f in repo_dir.glob("**/*")
-                    if f.is_file() and not f.is_symlink()
+                    for f in repo_dir.glob(mask)
+                    if f.is_file() and not f.is_symlink() and not _is_hidden_relpath(str(f.relative_to(repo_dir)))
                 }
                 if repo_dir.exists()
                 else {}
@@ -2271,6 +2351,8 @@ class Storage:
         if not repo_dir.exists():
             return Err(error=f"Repository not found: {collection}")
 
+        # No hidden filter here (F-b): find_changed_docs reports hidden stored
+        # rows as deleted on purpose, so pre-card .git junk gets purged.
         changed = self.find_changed_docs(collection, repo_dir)
         if not changed:
             return Ok(value=0)
@@ -2280,9 +2362,12 @@ class Storage:
             # Delete old chunks for changed files
             for item in changed:
                 conn.execute("DELETE FROM documents WHERE collection = ? AND file_path = ?", (collection, item["file_path"]))
-            conn.commit()
 
-            # Re-index changed files
+            # Re-index changed files — ONE transaction with the deletes (H-1):
+            # the old two-commit window persisted the delete phase first, so a
+            # failed re-insert left the document half-deleted. Any failure now
+            # rolls back both phases; only a vanished source keeps its delete
+            # (the file is gone — that IS the deletion).
             updated = 0
             for item in changed:
                 fp = item["file_path"]
@@ -2292,13 +2377,14 @@ class Storage:
                 full = repo_dir / fp
                 if not full.exists() or full.is_symlink():
                     continue
-                try:
-                    self._index_file(conn, full, repo_dir, collection, None)
-                    updated += 1
-                except (OSError, sqlite3.Error) as e:
-                    logger.debug("Reindexing %s failed: %s", fp, e)
+                self._index_file(conn, full, repo_dir, collection, None)
+                updated += 1
             conn.commit()
             return Ok(value=updated)
+        except (sqlite3.Error, OSError) as e:
+            conn.rollback()  # H-1: a failed reindex persists nothing — no half-deleted docs
+            logger.debug("Reindex failed: %s", e)
+            return Err(error=str(e))
         finally:
             self._invalidate_corpus_cache()
 

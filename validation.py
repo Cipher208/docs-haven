@@ -102,6 +102,28 @@ def validate_http_url(url: str) -> str | None:
     return None
 
 
+def normalize_http_url(url: str) -> str:
+    """Fold a bookmark URL to its canonical case form (H-5, RFC 3986).
+
+    Scheme and host are case-insensitive and fold to lowercase; userinfo,
+    path, query and fragment keep their case. The UNIQUE(url) bookmark key
+    must not depend on case — https://dup.com/a and HTTPS://DUP.COM/a are one
+    link. Strips surrounding whitespace (the F-6 normalization step). Port
+    digits and IPv6 literals pass through untouched.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url.strip())
+    userinfo, at, hostport = parts.netloc.rpartition("@")
+    host, colon, port = hostport.rpartition(":")
+    if colon and port.isdigit():
+        hostport = host.lower() + colon + port
+    else:
+        hostport = hostport.lower()
+    netloc = userinfo + at + hostport if at else hostport
+    return urlunsplit((parts.scheme.lower(), netloc, parts.path, parts.query, parts.fragment))
+
+
 def validate_collection(name: str) -> str | None:
     if not name:
         return "Collection name cannot be empty"

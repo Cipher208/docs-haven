@@ -4,7 +4,7 @@
 
 ```
 docs-haven/
-├── server.py        # MCP server — 30 tools, routing and lifecycle
+├── server.py        # MCP server — 32 tools, routing and lifecycle
 ├── storage.py       # SQLite FTS5 backend — search and indexing
 ├── scoring.py       # Scoring — BM25/lexical relevance, type/importance boosts
 ├── chunking.py      # Chunking — text + code-aware document splitting
@@ -19,7 +19,7 @@ docs-haven/
 ├── import_guard.py  # Import validation — phantom import checks
 ├── cli.py           # CLI interface — 13 commands
 ├── benchmark.py     # Performance benchmarks
-└── tests/           # pytest test suite (508 tests)
+└── tests/           # pytest test suite (532 tests)
 ```
 
 ## Data Flow

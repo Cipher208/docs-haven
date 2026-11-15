@@ -211,18 +211,7 @@ LLM summary from found chunks with citations.
 
 **Status:** ✅ DONE (card P2-1) — `kb_index` shell + `Storage.add_local` landed: local folders index without git (`path://<dir>` or a plain directory), config entries carry `source_type: "local"` + `url: "path://<absolute path>"`, and reindex resolves local dirs from config. URL/text/PyPI/bookmarks stay later cards.
 
-**Open findings (P2-1 blind review; pre-existing at HEAD, each its own card):**
-- `check_stale` hash bug — `_check_file_stale` compares a full 64-char
-  sha256 against the stored 16-char `content_hash`, so it reports
-  `content_changed` for any file that exists (reproduced on a github
-  collection at pre-card HEAD).
-- `find_changed_docs` ignores the collection mask and sweeps `.git`
-  (`.git/config` becomes searchable after reindex). Mask-aware change
-  detection + dot-dir exclusion; user-visible now that local folders exist.
-- Error/docs polish — moved folder: `reindex_collection` answers
-  "Repository not found" for a folder; re-running `kb_index` after a file
-  deletion leaves the old doc searchable until reindex (parity with
-  `add_repo` — needs one doc line).
+**Review findings (P2-1 blind review) — resolved (P2-H hygiene wave, 2026-11-15):** the `check_stale` hash bug (fixed in P2-H, H-3: both sides compare the 16-char hash prefix) and the `find_changed_docs` mask ignorance + `.git` sweep (fixed in P2-H, H-4: stored mask + dot-path exclusion) are closed; the moved-folder / `kb_index` re-add docs line landed in `docs/api/mcp-tools.md` (P2-H). History: all three were pre-existing at the P2-1 HEAD and stayed open through P2-2.
 
 ### 9. URL/Web Page Indexing
 
@@ -276,22 +265,18 @@ LLM summary from found chunks with citations.
 
 **Status:** ✅ DONE (card P2-2) — owner-approved `bookmarks` table (separate from documents, no content indexing), `kb_bookmark` upsert keyed by UNIQUE(url) — the upsert IS the edit (repeat saves update title/note/updated_at, `created_at` preserved) — and `kb_bookmarks` listing most recent first. http(s)-only URLs validated by `validate_http_url`. Deliberately outside the documents projection: bookmark writes carry no corpus-cache hooks, and searching bookmarks through `kb_search` is out of scope (they carry no content).
 
-**Open findings (P2-2 blind review, 2 rounds; each its own card):**
-- No transactional rollback repo-wide — `grep rollback` was empty: a
-  multi-statement write failing mid-way leaves partial rows that a later
-  commit on the same connection can persist (reproduced on
-  `update_document`, pre-existing). `add_text` got its rollback in P2-2's
-  fix round; remaining multi-statement write paths need
-  `BEGIN IMMEDIATE` + `conn.rollback()` in `except`.
-- Cold-start concurrency — first parallel calls on a fresh Storage can
-  surface `sqlite3.OperationalError: database is locked` (PRAGMA setup in
-  `_get_conn()` runs before the try/finally); pre-existing, loud but
-  non-lossy.
-- Bookmark URL case-folding — the UNIQUE key is whitespace-normalized but
-  not case-folded: `https://dup.com/a` and `HTTPS://DUP.COM/a` become two
-  rows (RFC 3986: scheme+host are case-insensitive).
-- Cosmetic — whitespace-only note titles double the hash
-  (`text://note-<hash8>-<hash16>`); harmless.
+**Review findings (P2-2 blind review, 2 rounds) — resolved (P2-H hygiene wave, 2026-11-15):** missing transactional rollback (fixed in P2-H, H-1: every multi-statement write rolls back in `except`), cold-start `database is locked` (fixed in P2-H, H-2: `busy_timeout` first + bounded PRAGMA retry), bookmark URL case-folding (fixed in P2-H, H-5: scheme+host folded per RFC 3986) and the whitespace-note hash doubling (fixed in P2-H, H-6: `text://note-<hash16>`). History: all four were open at the P2-2 HEAD; `add_text` had already gotten its rollback in P2-2's fix round.
+
+**Deferred residuals (P2-H fix-round blind review; recorded, not fixed — each its own card):**
+- single-write paths call `conn.commit()` without a rollback guard — a failed commit leaves the statement pending and a later write on the same connection persists it (`delete_document` repro);
+- `find_changed_docs` swallows `OSError` and the whole collection silently reports `Ok(0)` "no changes" (which also makes `reindex_collection`'s `except OSError` nearly unreachable);
+- `mask="**"` indexes nothing (`Path.glob("**")` matches directories only; pre-existing);
+- `test_sync.py::test_export_deduplicates` is flaky at a UTC second
+  boundary: `sync.py` hashes `exported_at` (second granularity) into the
+  chunk payload, so two exports straddling the boundary miss dedup;
+- a `text://` note stored in a *file* collection is reported `deleted`
+  and purged by reindex (file collections have no notes on disk to match;
+  same class as the items above).
 
 ---
 

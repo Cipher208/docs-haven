@@ -107,8 +107,10 @@ class TestAddLocal:
         entry = config["repos"]["notes"]
         assert entry["source_type"] == "local"
         assert entry["url"] == f"path://{folder.resolve()}"
-        # the rest mirrors add_repo entries
-        assert set(entry.keys()) == {"url", "source_type", "tags", "description", "files_indexed", "total_chunks"}
+        # the rest mirrors add_repo entries; "mask" added by P2-H (H-4) — was
+        # pinned without it, which precluded mask-aware reindex (find_changed_docs)
+        assert set(entry.keys()) == {"url", "source_type", "tags", "description", "mask", "files_indexed", "total_chunks"}
+        assert entry["mask"] == "**/*.md"
         assert entry["tags"] == ["docs"]
         assert entry["description"] == "local notes"
 
@@ -314,6 +316,10 @@ class TestGithubConfigShape:
         assert result.is_ok
 
         entry = kb_storage._load_config()["repos"]["test-repo"]
-        assert set(entry.keys()) == {"url", "tags", "description", "files_indexed", "total_chunks"}
+        # "mask" added by P2-H (H-4) — was pinned without it, which precluded
+        # mask-aware reindex (find_changed_docs); github entries stay
+        # source_type-less
+        assert set(entry.keys()) == {"url", "tags", "description", "mask", "files_indexed", "total_chunks"}
+        assert entry["mask"] == "**/*.md"
         assert "source_type" not in entry
         assert entry["url"] == "https://github.com/test/test-repo"

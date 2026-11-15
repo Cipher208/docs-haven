@@ -125,7 +125,10 @@ class TestHttpUrlNormalization:
     def test_uppercase_scheme_accepted(self, kb_storage: Storage) -> None:
         result = kb_storage.bookmark_upsert("HTTPS://EXAMPLE.COM")
         assert result.is_ok, result
-        assert result.value["url"] == "HTTPS://EXAMPLE.COM"
+        # P2-H H-5: scheme+host fold to lowercase (RFC 3986) — was
+        # `== "HTTPS://EXAMPLE.COM"`, which pinned the un-folded key that let
+        # https://dup.com/a and HTTPS://DUP.COM/a become two rows.
+        assert result.value["url"] == "https://example.com"
 
     def test_dangerous_scheme_rejected_after_lowercasing(self, kb_storage: Storage) -> None:
         result = kb_storage.bookmark_upsert("JavaScript://evil.example/x")
