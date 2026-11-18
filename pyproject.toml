@@ -29,7 +29,7 @@ dependencies = [
     # Latest 1.x (1.28.1) does not yet fix them. Upgrade when patches land.
     # Pinned to v1: mcp 2.x renamed mcp.server.fastmcp. 2.x migration is a
     # separate card; do not widen this pin before it lands.
-    "mcp[cli]>=1.27,<2",
+    "mcp[cli]>=1.27,<3",
 ]
 
 [project.urls]
